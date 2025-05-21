@@ -1,0 +1,8 @@
+aiofiles~=23.2.1         # Удовлетворяем зависимость aiogram 3.10.0
+pydantic~=2.5.0         # Pydantic V2, совместимый с новыми aiogram
+aiohttp~=3.9.3          # Версия, которая должна быть совместима с Python 3.12+
+aiogram~=3.10.0         # Обновленная стабильная версия aiogram
+python-dotenv
+pytz
+asyncpg==0.30.0
+apscheduler~=3.10.4
