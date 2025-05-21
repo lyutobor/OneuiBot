@@ -107,8 +107,8 @@ try:
 except ImportError:
     POSITIVE_RESPONSES = ["Отличные новости! Твоя версия OneUI увеличилась на %.1f!", "Поздравляю, обновление на %.1f установлено!"]
     NEGATIVE_RESPONSES = ["О нет! Произошел откат версии OneUI на %.1f.", "Кажется, что-то пошло не так. Версия уменьшилась на %.1f."]
-    POS_MICRO_CHANGES: List[float] = [0.1, 0.2, 0.3, 0.4, 0.5]
-    NEG_MICRO_CHANGES: List[float] = [-0.1, -0.2, -0.3, -0.4, -0.5]
+    #POS_MICRO_CHANGES: List[float] = [0.1, 0.2, 0.3, 0.4, 0.5]
+    #NEG_MICRO_CHANGES: List[float] = [-0.1, -0.2, -0.3, -0.4, -0.5]
     logging.warning("Файл responses.py не найден или не содержит нужные константы, используются значения по умолчанию.")
 
 
