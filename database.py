@@ -62,6 +62,29 @@ async def init_db():
              logger.info("Таблица 'user_oneui' создана с минимальной структурой.")
         else:
             logger.info("Таблица 'user_oneui' уже существует.")
+            
+            
+        # ДОБАВЬ ЭТОТ БЛОК ДЛЯ СОЗДАНИЯ ТАБЛИЦЫ ОГРАБЛЕНИЙ
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_robbank_status (
+                user_id BIGINT NOT NULL,
+                chat_id BIGINT NOT NULL,
+                last_robbank_attempt_utc TIMESTAMP WITH TIME ZONE,
+                robbank_oneui_blocked_until_utc TIMESTAMP WITH TIME ZONE,
+                current_operation_name TEXT,
+                current_operation_start_utc TIMESTAMP WITH TIME ZONE,
+                current_operation_base_reward INTEGER,
+                PRIMARY KEY (user_id, chat_id),
+                FOREIGN KEY (user_id, chat_id) REFERENCES user_oneui (user_id, chat_id) ON DELETE CASCADE
+            );
+        """)
+        logger.info("Таблица 'user_robbank_status' проверена/создана.")
+        # Индексы для user_robbank_status (опционально, но полезно для производительности)
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_user_robbank_status_blocked ON user_robbank_status (robbank_oneui_blocked_until_utc);")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_user_robbank_status_pending_op ON user_robbank_status (current_operation_start_utc);")
+        # --- КОНЕЦ БЛОКА ДЛЯ ТАБЛИЦЫ ОГРАБЛЕНИЙ ---    
+            
+            
 
         # Функции для добавления колонок (они должны быть определены ниже в этом файле)
         await add_username_column(conn_ext=conn)
@@ -951,7 +974,92 @@ async def get_user_version(user_id: int, chat_id: int) -> float:
             return 0.0
     return 0.0 # Если цикл завершился без ошибок, но и без результата (маловероятно)
 
+async def get_user_robbank_status(user_id: int, chat_id: int, conn_ext: Optional[asyncpg.Connection] = None) -> Optional[Dict[str, Any]]:
+    conn = conn_ext if conn_ext else await get_connection()
+    try:
+        row = await conn.fetchrow(
+            "SELECT * FROM user_robbank_status WHERE user_id = $1 AND chat_id = $2",
+            user_id, chat_id
+        )
+        if row:
+            data = dict(row)
+            # Преобразование timestamp в aware datetime
+            for ts_key in ['last_robbank_attempt_utc', 'robbank_oneui_blocked_until_utc', 'current_operation_start_utc']:
+                if data.get(ts_key) and isinstance(data[ts_key], datetime):
+                    ts_val = data[ts_key]
+                    # Если время naive, делаем его aware UTC, иначе приводим к UTC
+                    data[ts_key] = ts_val.replace(tzinfo=dt_timezone.utc) if ts_val.tzinfo is None else ts_val.astimezone(dt_timezone.utc)
+            return data
+        return None # Возвращаем None, если запись не найдена
+    except Exception as e:
+        logger.error(f"DB: Ошибка получения статуса ограбления для user {user_id}, chat {chat_id}: {e}", exc_info=True)
+        return None
+    finally:
+        if not conn_ext and conn and not conn.is_closed():
+            await conn.close()
 
+async def update_user_robbank_status(
+    user_id: int,
+    chat_id: int,
+    last_robbank_attempt_utc: Optional[datetime] = None,
+    robbank_oneui_blocked_until_utc: Optional[datetime] = None,
+    current_operation_name: Optional[str] = ..., # Используем ... как маркер "не передано"
+    current_operation_start_utc: Optional[datetime] = ...,
+    current_operation_base_reward: Optional[int] = ...,
+    conn_ext: Optional[asyncpg.Connection] = None
+):
+    conn = conn_ext if conn_ext else await get_connection()
+    try:
+        # Получаем текущие значения, чтобы не перезаписать их None, если они не переданы для обновления
+        current_status = await get_user_robbank_status(user_id, chat_id, conn_ext=conn)
+        if not current_status: # Если записи нет, все передаваемые значения будут для INSERT
+            current_status = {
+                'last_robbank_attempt_utc': None,
+                'robbank_oneui_blocked_until_utc': None,
+                'current_operation_name': None,
+                'current_operation_start_utc': None,
+                'current_operation_base_reward': None
+            }
+
+        # Определяем значения для SQL-запроса
+        # Если значение передано (не ...), используем его. Иначе, используем существующее из БД.
+        val_last_attempt = last_robbank_attempt_utc if last_robbank_attempt_utc is not None else current_status.get('last_robbank_attempt_utc')
+        val_blocked_until = robbank_oneui_blocked_until_utc if robbank_oneui_blocked_until_utc is not None else current_status.get('robbank_oneui_blocked_until_utc')
+        
+        # Для operation_*, если передается явный None, это означает очистку.
+        # Если параметр не был передан (остался ...), то значение не меняется.
+        val_op_name = current_operation_name if current_operation_name is not ... else current_status.get('current_operation_name')
+        val_op_start = current_operation_start_utc if current_operation_start_utc is not ... else current_status.get('current_operation_start_utc')
+        val_op_reward = current_operation_base_reward if current_operation_base_reward is not ... else current_status.get('current_operation_base_reward')
+
+        # Преобразуем в aware UTC, если не None
+        if val_last_attempt and val_last_attempt.tzinfo is None: val_last_attempt = val_last_attempt.replace(tzinfo=dt_timezone.utc)
+        if val_blocked_until and val_blocked_until.tzinfo is None: val_blocked_until = val_blocked_until.replace(tzinfo=dt_timezone.utc)
+        if val_op_start and val_op_start.tzinfo is None: val_op_start = val_op_start.replace(tzinfo=dt_timezone.utc)
+
+        await conn.execute(
+            """
+            INSERT INTO user_robbank_status (
+                user_id, chat_id, last_robbank_attempt_utc, robbank_oneui_blocked_until_utc,
+                current_operation_name, current_operation_start_utc, current_operation_base_reward
+            ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+            ON CONFLICT (user_id, chat_id) DO UPDATE SET
+                last_robbank_attempt_utc = EXCLUDED.last_robbank_attempt_utc,
+                robbank_oneui_blocked_until_utc = EXCLUDED.robbank_oneui_blocked_until_utc,
+                current_operation_name = EXCLUDED.current_operation_name,
+                current_operation_start_utc = EXCLUDED.current_operation_start_utc,
+                current_operation_base_reward = EXCLUDED.current_operation_base_reward;
+            """,
+            user_id, chat_id, val_last_attempt, val_blocked_until,
+            val_op_name, val_op_start, val_op_reward
+        )
+    except Exception as e:
+        logger.error(f"DB: Ошибка обновления статуса ограбления для user {user_id}, chat {chat_id}: {e}", exc_info=True)
+        # Можно перебросить исключение, если это критично для логики вызывающей функции
+        # raise
+    finally:
+        if not conn_ext and conn and not conn.is_closed():
+            await conn.close()
 # В файле database.py
 
 # ... (остальные импорты и функции НАД этой функцией) ...

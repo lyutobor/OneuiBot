@@ -317,6 +317,44 @@ class Config:
     
     # Настройки для Банка
     BANK_MAX_LEVEL = 30 # Максимальный уровень банка
+    
+    # === Настройки Ограбления Банка (/robbank) ===
+    ROBBANK_ALIASES = ["robbank", "ограбитьбанк", "налет", "ограбление", "bankrob"]
+    ROBBANK_COOLDOWN_DAYS = 1 # Раз в игровой день
+    ROBBANK_RESET_HOUR = 21 # Час сброса кулдауна (используем общий RESET_HOUR)
+    ROBBANK_PREPARATION_COST_MIN = 5
+    ROBBANK_PREPARATION_COST_MAX = 20
+    ROBBANK_RESULT_DELAY_MIN_SECONDS = 60 # 1 минута
+    ROBBANK_RESULT_DELAY_MAX_SECONDS = 120 # 2 минуты
+
+    ROBBANK_BASE_SUCCESS_CHANCE = 0.60  # 60%
+    ROBBANK_ONEUI_VERSION_BONUS_PER_X_VERSIONS = 0.01  # +1% к шансу
+    ROBBANK_ONEUI_X_VERSIONS_FOR_BONUS = 15 # за каждые 15 версий
+    ROBBANK_BANK_LEVEL_SUCCESS_BONUS_PER_LEVEL = 0.05  # +5% к шансу за уровень банка
+    ROBBANK_MAX_SUCCESS_CHANCE = 0.95  # Максимальный шанс 95%
+    ROBBANK_GUARANTEED_SUCCESS_BANK_LEVEL_MIN = 15 # Уровень банка для 100% шанса
+    ROBBANK_GUARANTEED_SUCCESS_BANK_LEVEL_MAX = 18 # Верхняя граница для 100% шанса
+
+    ROBBANK_REWARD_BASE_MIN = 100
+    ROBBANK_REWARD_BASE_MAX = 1500
+    ROBBANK_REWARD_MAX_CHANCE = 0.005  # 0.5% шанс на максимальную награду из диапазона
+
+    # Мультипликаторы к награде (значение 1.0 означает отсутствие бонуса)
+    ROBBANK_REWARD_ONEUI_MULTIPLIER_PER_X_VERSIONS = 0.05  # +5% к награде (т.е. множитель 1.05)
+    ROBBANK_REWARD_ONEUI_X_VERSIONS_FOR_MULTIPLIER = 15     # за каждые 15 версий
+    ROBBANK_REWARD_BANK_LEVEL_MULTIPLIER_PER_LEVEL = 0.20  # +20% к награде за уровень банка (т.е. множитель 1.20)
+
+    # Бонусы от порядкового номера самого "старшего" бизнеса (1-18) в чате как МНОЖИТЕЛИ
+    # Пример: 1.10 означает +10% к награде
+    ROBBANK_REWARD_BIZ_TIER_1_6_MIN_BONUS_PERCENT_AS_MULTIPLIER = 1.10 # Для бизнеса №1
+    ROBBANK_REWARD_BIZ_TIER_1_6_MAX_BONUS_PERCENT_AS_MULTIPLIER = 1.50 # Для бизнеса №6
+    ROBBANK_REWARD_BIZ_TIER_7_14_BONUS_PERCENT_AS_MULTIPLIER = 2.00   # Для бизнесов №7-14 (100% бонус)
+    ROBBANK_REWARD_BIZ_TIER_15_18_MIN_BONUS_PERCENT_AS_MULTIPLIER = 2.00 # Для бизнеса №15 (100% бонус)
+    ROBBANK_REWARD_BIZ_TIER_15_18_MAX_BONUS_PERCENT_AS_MULTIPLIER = 5.00 # Для бизнеса №18 (400% бонус)
+    ROBBANK_REWARD_BIZ_TIER_15_18_COUNT = 4 # Количество бизнесов в тире 15-18 (15, 16, 17, 18)
+    
+    # Блокировка /oneui после ареста (сброс в ROBBANK_RESET_HOUR)
+    
     # --- Настройки Достижений ---
     ACHIEVEMENTS_DATA = {
         # OneUI-Мастерство
