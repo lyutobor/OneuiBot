@@ -400,13 +400,13 @@ async def _apply_prize_and_get_message(
             # ... (существующая логика) ...
              new_attempts = current_roulette_status_before_prize.get('extra_bonus_attempts', 0) + int(prize_value)
              updated_fields_for_roulette_status['extra_bonus_attempts'] = new_attempts
-             message_to_user = (f"🔄 {user_mention}, вы выиграли <b>{prize_value} дополнительную попытку</b> для команды <code>/bonus</code> в этом чате! "
+             message_to_user = (f"🔄 {user_mention}, вы выиграли <b>{prize_value} дополнительную попытку</b> для команды /bonus в этом чате! "
                                 f"Теперь у вас {new_attempts} таких попыток. Неиспользованные сгорят в {Config.RESET_HOUR}:00.")
         elif prize_category == "extra_oneui_attempt":
             # ... (существующая логика) ...
              new_attempts = current_roulette_status_before_prize.get('extra_oneui_attempts', 0) + int(prize_value)
              updated_fields_for_roulette_status['extra_oneui_attempts'] = new_attempts
-             message_to_user = (f"🔄 {user_mention}, вы выиграли <b>{prize_value} дополнительную попытку</b> использовать команду <code>/oneui</code> сегодня в этом чате! "
+             message_to_user = (f"🔄 {user_mention}, вы выиграли <b>{prize_value} дополнительную попытку</b> использовать команду /oneui сегодня в этом чате! "
                                 f"Теперь у вас {new_attempts} таких попыток. Неиспользованные сгорят в {Config.RESET_HOUR}:00.")
         elif prize_category == "bonus_multiplier_boost":
             # ... (существующая логика) ...
@@ -418,7 +418,7 @@ async def _apply_prize_and_get_message(
             # ... (существующая логика) ...
              new_charges = current_roulette_status_before_prize.get('negative_change_protection_charges', 0) + int(prize_value)
              updated_fields_for_roulette_status['negative_change_protection_charges'] = new_charges
-             message_to_user = (f"🛡️ {user_mention}, вы получили <b>{prize_value} заряд защиты</b> от отрицательного изменения для <code>/oneui</code> в этом чате! "
+             message_to_user = (f"🛡️ {user_mention}, вы получили <b>{prize_value} заряд защиты</b> от отрицательного изменения для /oneui в этом чате! "
                                 f"Теперь у вас {new_charges} зарядов. Сработает при следующем негативном ролле.")
 
         # ++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
