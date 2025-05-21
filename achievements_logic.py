@@ -749,9 +749,8 @@ async def cmd_select_achievement(message: Message, command: CommandObject, bot: 
 
                 # **Попробуем обернуть отправку сообщения в свой try-except блок**
                 try:
-                    await message.reply(f"✅ {user_link}, ваше выбранное достижение для профиля: <b>{display_name}</b>", parse_mode="HTML")
-                    logger.info(f"User {user_id} selected achievement '{selected_achievement_key}' for display."),
-                                   disable_web_page_preview=True)     
+                    await message.reply(f"✅ {user_link}, ваше выбранное достижение для профиля: <b>{display_name}</b>", parse_mode="HTML", disable_web_page_preview=True)
+                    logger.info(f"User {user_id} selected achievement '{selected_achievement_key}' for display.")
                 except Exception as e_send_reply:
                     logger.error(f"Failed to send success message for selected achievement to user {user_id}: {e_send_reply}", exc_info=True)
                     # Если отправка сообщения пользователю провалилась, но в БД все обновилось,
@@ -762,7 +761,7 @@ async def cmd_select_achievement(message: Message, command: CommandObject, bot: 
                     # Но для ясности, что БД обновилась:
                     logger.info(f"DB update for selected achievement for user {user_id} was successful, but notification failed.")
             else:
-                await message.reply(f"✅ {user_link}, ваше выбранное достижение для профиля <b>сброшено</b>.", parse_mode="HTML")
+                await message.reply(f"✅ {user_link}, ваше выбранное достижение для профиля <b>сброшено</b>.", parse_mode="HTML", disable_web_page_preview=True)
                 logger.info(f"User {user_id} cleared selected achievement.")
         else:
             await message.reply(f"Произошла ошибка при сохранении выбранного достижения.")
