@@ -750,7 +750,8 @@ async def cmd_select_achievement(message: Message, command: CommandObject, bot: 
                 # **Попробуем обернуть отправку сообщения в свой try-except блок**
                 try:
                     await message.reply(f"✅ {user_link}, ваше выбранное достижение для профиля: <b>{display_name}</b>", parse_mode="HTML")
-                    logger.info(f"User {user_id} selected achievement '{selected_achievement_key}' for display.")
+                    logger.info(f"User {user_id} selected achievement '{selected_achievement_key}' for display."),
+                                   disable_web_page_preview=True)     
                 except Exception as e_send_reply:
                     logger.error(f"Failed to send success message for selected achievement to user {user_id}: {e_send_reply}", exc_info=True)
                     # Если отправка сообщения пользователю провалилась, но в БД все обновилось,
