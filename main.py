@@ -1302,7 +1302,7 @@ async def cmd_start(message: Message, bot: Bot):
 ℹ️Чтобы узнать обо всех командах, набери /help.ℹ️
 """
     try:
-        await message.reply(response_text, parse_mode="HTML", disable_web_page_preview=True)
+        await message.reply(response_text, parse_mode="HTML", disable_web_page_preview=True, parse_mode="MarkdownV2)
         logger.info(f"User {user_id} ({user_link}) received enhanced start message.")
     except Exception as e:
         logger.error(f"Error sending enhanced start message to user {user_id}: {e}", exc_info=True)
