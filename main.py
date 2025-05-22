@@ -22,6 +22,7 @@ from robbank_logic import setup_robbank_handlers
 from dotenv import load_dotenv
 from pytz import timezone as pytz_timezone # Убедитесь, что pytz установлен: pip install pytz
 import logging
+from phrases import ONEUI_BLOCKED_PHRASES
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -1023,7 +1024,9 @@ async def oneui_command(message: Message): # bot: Bot здесь не нужен
         if message.chat.username:
             telegram_chat_public_link = f"https://t.me/{message.chat.username}"
         # ... (твой код для получения invite_link, если нужен)
-
+    
+    original_message_thread_id: Optional[int] = message.message_thread_id
+     
 
     current_user_chat_lock = await database.get_user_chat_lock(user_id, chat_id_current_message)
     async with current_user_chat_lock:
@@ -1287,6 +1290,7 @@ async def oneui_command(message: Message): # bot: Bot здесь не нужен
             
             await check_and_grant_achievements( # Используем message.bot
                 user_id, chat_id_current_message, message.bot,
+                message_thread_id=original_message_thread_id,
                 current_oneui_version=new_version_final_rounded,
             )
 

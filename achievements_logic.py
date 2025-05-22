@@ -37,6 +37,7 @@ async def check_and_grant_achievements(
     bot_instance: Bot,
     # **kwargs_for_checks позволяет передавать любые данные, специфичные для текущего действия.
     # Например: current_oneui_version=X.X, onecoin_change=Y, phone_type_bought="A", etc.
+    message_thread_id: Optional[int] = None,
     **kwargs_for_checks: Any
 ):
     """
@@ -655,6 +656,7 @@ async def check_and_grant_achievements(
                         chat_id, 
                         achievement_message, 
                         parse_mode="HTML",
+                        message_thread_id=message_thread_id,
                         disable_web_page_preview=True
                         )
                         logger.info(f"Achievement '{achievement_info['name']}' unlocked and notified for user {user_id} in chat {chat_id}.")
@@ -668,7 +670,7 @@ async def check_and_grant_achievements(
 
 # --- Команда для просмотра достижений ---
 
-@achievements_router.message(Command("selectachievement", "выбратьдостижение", "моёдостижение", ignore_case=True))
+@achievements_router.message(Command("selectachievement", "выбратьдостижение", "моёдостижение", "достижения", ignore_case=True))
 async def cmd_select_achievement(message: Message, command: CommandObject, bot: Bot):
     if not message.from_user:
         await message.reply("Не могу определить пользователя.")
