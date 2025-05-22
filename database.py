@@ -63,7 +63,10 @@ async def init_db():
         else:
             logger.info("Таблица 'user_oneui' уже существует.")
             
-            
+                
+
+
+        
         # ДОБАВЬ ЭТОТ БЛОК ДЛЯ СОЗДАНИЯ ТАБЛИЦЫ ОГРАБЛЕНИЙ
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS user_robbank_status (
@@ -95,7 +98,7 @@ async def init_db():
         await add_onecoins_column(conn_ext=conn)
         await add_telegram_chat_link_column(conn_ext=conn)
         await _add_column_if_not_exists(conn, "user_oneui", "total_income_earned_from_businesses", "BIGINT DEFAULT 0 NOT NULL") # <<< НОВОЕ ПОЛЕ
-        await _add_column_if_not_exists(conn, "user_oneui", "selected_achievement_key", "TEXT DEFAULT NULL")  # <<< НОВАЯ СТРОКА
+        await _add_column_if_not_exists(conn, "user_oneui", "TEXT DEFAULT NULL")  # <<< НОВАЯ СТРОКА
         logger.info("Колонки таблицы 'user_oneui' проверены/добавлены.")
 
         # --- Таблица user_bonus_multipliers ---
@@ -110,6 +113,18 @@ async def init_db():
             )
         """)
         logger.info("Таблица 'user_bonus_multipliers' проверена/создана (с chat_id).")
+        
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_display_achievement (
+                user_id BIGINT PRIMARY KEY,
+                selected_achievement_key TEXT DEFAULT NULL,
+                updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        logger.info("Таблица 'user_display_achievement' проверена/создана.")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_user_display_achievement_user_id ON user_display_achievement (user_id);")
+        logger.info("Индексы для 'user_display_achievement' проверены/созданы.")
+        
         
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS user_phones (
@@ -1712,94 +1727,50 @@ async def get_top_onecoins_in_chat(chat_id: int, limit: int = 10) -> List[Dict[s
     finally:
         if conn and not conn.is_closed(): await conn.close()
         
-async def set_user_selected_achievement(user_id: int, achievement_key: Optional[str], conn_ext: Optional[asyncpg.Connection] = None) -> bool: # ИЗМЕНЕНИЕ: УБРАН chat_id
+async def set_user_selected_achievement(user_id: int, achievement_key: Optional[str], conn_ext: Optional[asyncpg.Connection] = None) -> bool:
     """
-    Устанавливает (или сбрасывает в NULL) выбранное пользователем достижение для отображения.
-    achievement_key: Ключ достижения из Config.ACHIEVEMENTS_DATA, или None для сброса.
+    Устанавливает (или сбрасывает) выбранное пользователем достижение в таблице user_display_achievement.
     """
-    conn_to_use = conn_ext
-    if not conn_to_use:
-        # Оставляем statement_cache_size=0, это не повредит
-        conn_to_use = await asyncpg.connect(DATABASE_URL, statement_cache_size=0)
-
+    conn = conn_ext if conn_ext else await get_connection()
     try:
-        async with conn_to_use.transaction():
-            result_status = await conn_to_use.execute(
-                """
-                UPDATE user_oneui
-                SET selected_achievement_key = $2
-                WHERE user_id = $1 -- ИЗМЕНЕНИЕ: УБРАНО AND chat_id = $3
-                """,
-                user_id, achievement_key # ИЗМЕНЕНИЕ: УБРАН chat_id из параметров
-            )
-
-            # Логика проверки UPDATE: теперь ожидаем, что может обновиться несколько строк
-            # (одна на каждый чат, где есть user_id).
-            # Поэтому мы больше не можем проверять "UPDATE 1".
-            # Достаточно убедиться, что хотя бы одна строка была обновлена.
-            if result_status.startswith("UPDATE ") and int(result_status.split(" ")[1]) >= 1:
-                return True
-            elif result_status == "UPDATE 0":
-                logger.warning(f"DB: No user record found for {user_id} when trying to set selected achievement '{achievement_key}'. This might indicate an issue if the user's record should exist.")
-                return False
-            else:
-                logger.error(f"DB: Unexpected result '{result_status}' when updating selected achievement for user {user_id} to '{achievement_key}'.")
-                return False
-
+        # Убедимся, что dt_timezone импортирован: from datetime import timezone as dt_timezone
+        now_utc = datetime.now(dt_timezone.utc) 
+        await conn.execute(
+            """
+            INSERT INTO user_display_achievement (user_id, selected_achievement_key, updated_at)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (user_id) DO UPDATE SET
+                selected_achievement_key = EXCLUDED.selected_achievement_key,
+                updated_at = EXCLUDED.updated_at;
+            """,
+            user_id, achievement_key, now_utc
+        )
+        logger.info(f"DB: Selected achievement for user {user_id} set to '{achievement_key}' in user_display_achievement.")
+        return True
     except Exception as e:
-        logger.error(f"DB: Error setting selected achievement for user {user_id} to '{achievement_key}': {e}", exc_info=True)
+        logger.error(f"DB: Error setting selected achievement for user {user_id} to '{achievement_key}' in user_display_achievement: {e}", exc_info=True)
         return False
     finally:
-        if not conn_ext and conn_to_use and not conn_to_use.is_closed():
-            await conn_to_use.close()
+        if not conn_ext and conn and not conn.is_closed():
+            await conn.close()
 
 async def get_user_selected_achievement(user_id: int, conn_ext: Optional[asyncpg.Connection] = None) -> Optional[str]:
     """
-    Получает ключ выбранного достижения для пользователя.
+    Получает ключ выбранного достижения для пользователя из таблицы user_display_achievement.
     """
-    conn_to_use = conn_ext if conn_ext else await get_connection()
+    conn = conn_ext if conn_ext else await get_connection()
     try:
-        selected_key = await conn_to_use.fetchval(
-            "SELECT selected_achievement_key FROM user_oneui WHERE user_id = $1",
+        selected_key = await conn.fetchval(
+            "SELECT selected_achievement_key FROM user_display_achievement WHERE user_id = $1",
             user_id
         )
         return selected_key
     except Exception as e:
-        logger.error(f"DB: Error getting selected achievement for user {user_id}: {e}", exc_info=True)
+        logger.error(f"DB: Error getting selected achievement for user {user_id} from user_display_achievement: {e}", exc_info=True)
         return None
     finally:
-        if not conn_ext and conn_to_use and not conn_to_use.is_closed():
-            await conn_to_use.close()        
-
-async def get_global_top_onecoins(limit: int = 10) -> List[Dict[str, Any]]:
-    conn = await get_connection()
-    try:
-        rows = await conn.fetch("""
-            WITH UserMaxOnecoins AS (
-                SELECT user_id, MAX(onecoins) as max_user_onecoins
-                FROM user_oneui WHERE onecoins > 0 GROUP BY user_id
-            ),
-            RankedUserCoinRecords AS (
-                SELECT u.user_id, u.full_name, u.username, u.onecoins, u.chat_id,
-                       u.chat_title, u.telegram_chat_link, u.last_used,
-                       ROW_NUMBER() OVER (
-                           PARTITION BY u.user_id ORDER BY u.onecoins DESC, u.last_used DESC NULLS LAST
-                       ) as rn
-                FROM user_oneui u JOIN UserMaxOnecoins umoc ON u.user_id = umoc.user_id AND u.onecoins = umoc.max_user_onecoins
-            )
-            SELECT rur.user_id, rur.full_name, rur.username, rur.onecoins,
-                   rur.chat_id, rur.chat_title, rur.telegram_chat_link
-            FROM RankedUserCoinRecords rur
-            WHERE rur.rn = 1
-            ORDER BY rur.onecoins DESC, rur.user_id ASC
-            LIMIT $1;
-        """, limit)
-        return [dict(r) for r in rows]
-    except Exception as e:
-        logger.error(f"DB: Error in get_global_top_onecoins: {e}", exc_info=True)
-        return []
-    finally:
-        if conn and not conn.is_closed(): await conn.close()
+        if not conn_ext and conn and not conn.is_closed():
+            await conn.close()
 
 async def get_user_max_version_global(user_id: int) -> float:
     conn = await get_connection()
@@ -1813,6 +1784,56 @@ async def get_user_max_version_global(user_id: int) -> float:
         return 0.0
     finally:
         if conn and not conn.is_closed(): await conn.close()
+        
+async def get_global_top_onecoins(limit: int = 10, conn_ext: Optional[asyncpg.Connection] = None) -> List[Dict[str, Any]]:
+    """
+    Получает глобальный топ пользователей по суммарному балансу OneCoin во всех чатах.
+    """
+    conn = conn_ext if conn_ext else await get_connection()
+    try:
+        query = """
+            WITH UserTotalOnecoins AS (
+                SELECT 
+                    user_id, 
+                    SUM(onecoins) as total_user_onecoins
+                FROM user_oneui
+                WHERE onecoins > 0
+                GROUP BY user_id
+            ),
+            RankedUserChatInfo AS (
+                SELECT
+                    user_id,
+                    full_name,
+                    username,
+                    chat_id, 
+                    chat_title,
+                    telegram_chat_link,
+                    last_used,
+                    ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY last_used DESC NULLS LAST) as rn
+                FROM user_oneui
+            )
+            SELECT
+                utc.user_id,
+                ruci.full_name,
+                ruci.username,
+                utc.total_user_onecoins as onecoins,
+                ruci.chat_id, 
+                ruci.chat_title,
+                ruci.telegram_chat_link
+            FROM UserTotalOnecoins utc
+            JOIN RankedUserChatInfo ruci ON utc.user_id = ruci.user_id AND ruci.rn = 1
+            WHERE utc.total_user_onecoins > 0
+            ORDER BY utc.total_user_onecoins DESC, utc.user_id ASC
+            LIMIT $1;
+        """
+        rows = await conn.fetch(query, limit)
+        return [dict(r) for r in rows]
+    except Exception as e:
+        logger.error(f"DB: Error in get_global_top_onecoins: {e}", exc_info=True)
+        return []
+    finally:
+        if not conn_ext and conn and not conn.is_closed():
+            await conn.close()        
 
 async def get_user_max_oneui_for_day_in_competition(user_id: int, target_date_local: DDate) -> Optional[float]:
     conn = await get_connection()
@@ -2316,6 +2337,8 @@ async def get_user_data_for_update(user_id: int, chat_id: int, conn_ext: Optiona
     finally:
         if not conn_ext and conn_to_use and not conn_to_use.is_closed():
             await conn_to_use.close()
+
+
 
 # --- Функции для user_phones ---
 
