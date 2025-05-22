@@ -520,6 +520,26 @@ async def init_db():
         """)         
         logger.info("Таблица 'user_black_market_monthly_stats' проверена/создана.")
         
+        
+        await conn.execute("""
+            CREATE TABLE IF NOT EXISTS user_daily_onecoin_claims (
+                user_id BIGINT NOT NULL,
+                chat_id BIGINT NOT NULL,
+                last_claim_utc TIMESTAMP WITH TIME ZONE DEFAULT NULL,
+                PRIMARY KEY (user_id, chat_id),
+                CONSTRAINT fk_user_oneui_onecoin_claim
+                FOREIGN KEY (user_id, chat_id)
+                REFERENCES user_oneui (user_id, chat_id)
+                ON DELETE CASCADE
+            )
+        """)
+        logger.info("Таблица 'user_daily_onecoin_claims' проверена/создана.")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_user_daily_onecoin_claims_user_chat ON user_daily_onecoin_claims (user_id, chat_id);")
+
+
+        logger.info("Индексы для 'user_daily_onecoin_claims' проверены/созданы.")
+        
+        
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS user_black_market_slots (
                 user_id BIGINT NOT NULL,
@@ -588,7 +608,69 @@ async def increment_user_bm_monthly_purchase(user_id: int, year_month: str, conn
         if not conn_ext and conn and not conn.is_closed():
             await conn.close()
 
+async def get_user_daily_onecoin_claim_status(user_id: int, chat_id: int, conn_ext: Optional[asyncpg.Connection] = None) -> Optional[datetime]:
+    """
+    Получает время последнего использования команды /onecoin (ежедневной награды) для пользователя в чате.
+    Возвращает datetime UTC или None, если команда еще не использовалась.
+    """
+    conn = conn_ext if conn_ext else await get_connection()
+    try:
+        # Убедимся, что основная запись user_oneui существует
+        await conn.execute("""
+            INSERT INTO user_oneui (user_id, chat_id) VALUES ($1, $2)
+            ON CONFLICT (user_id, chat_id) DO NOTHING;
+        """, user_id, chat_id)
 
+        # Создаем запись в user_daily_onecoin_claims, если ее нет (для новых пользователей/чатов)
+        await conn.execute("""
+            INSERT INTO user_daily_onecoin_claims (user_id, chat_id, last_claim_utc)
+            VALUES ($1, $2, NULL)
+            ON CONFLICT (user_id, chat_id) DO NOTHING;
+        """, user_id, chat_id)
+
+        timestamp_val = await conn.fetchval(
+            "SELECT last_claim_utc FROM user_daily_onecoin_claims WHERE user_id = $1 AND chat_id = $2",
+            user_id, chat_id
+        )
+        if timestamp_val and isinstance(timestamp_val, datetime):
+            return timestamp_val.replace(tzinfo=dt_timezone.utc) if timestamp_val.tzinfo is None else timestamp_val.astimezone(dt_timezone.utc)
+        return None
+    except Exception as e:
+        logger.error(f"DB: Ошибка получения статуса daily_onecoin_claim для user {user_id} chat {chat_id}: {e}", exc_info=True)
+        return None
+    finally:
+        if not conn_ext and conn and not conn.is_closed():
+            await conn.close()
+
+async def update_user_daily_onecoin_claim_time(user_id: int, chat_id: int, claim_time_utc: datetime, conn_ext: Optional[asyncpg.Connection] = None):
+    """
+    Обновляет время последнего использования команды /onecoin (ежедневной награды).
+    """
+    conn = conn_ext if conn_ext else await get_connection()
+    try:
+        # Убедимся, что основная запись user_oneui существует
+        await conn.execute("""
+            INSERT INTO user_oneui (user_id, chat_id) VALUES ($1, $2)
+            ON CONFLICT (user_id, chat_id) DO NOTHING;
+        """, user_id, chat_id)
+
+        ts_aware = claim_time_utc.astimezone(dt_timezone.utc) if claim_time_utc.tzinfo else claim_time_utc.replace(tzinfo=dt_timezone.utc)
+
+        await conn.execute(
+            """
+            INSERT INTO user_daily_onecoin_claims (user_id, chat_id, last_claim_utc)
+            VALUES ($1, $2, $3)
+            ON CONFLICT (user_id, chat_id) DO UPDATE SET
+                last_claim_utc = EXCLUDED.last_claim_utc;
+            """,
+            user_id, chat_id, ts_aware
+        )
+    except Exception as e:
+        logger.error(f"DB: Ошибка обновления времени daily_onecoin_claim для user {user_id} chat {chat_id}: {e}", exc_info=True)
+        # raise # Можно не перевыбрасывать, чтобы не ломать основной поток команды
+    finally:
+        if not conn_ext and conn and not conn.is_closed():
+            await conn.close()
 
 
 # --- НОВЫЕ ФУНКЦИИ ДЛЯ ПЕРСОНАЛЬНЫХ СЛОТОВ ЧЕРНОГО РЫНКА ---
