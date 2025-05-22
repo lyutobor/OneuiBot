@@ -97,8 +97,7 @@ async def init_db():
         await add_last_used_column(conn_ext=conn)
         await add_onecoins_column(conn_ext=conn)
         await add_telegram_chat_link_column(conn_ext=conn)
-        await _add_column_if_not_exists(conn, "user_oneui", "total_income_earned_from_businesses", "BIGINT DEFAULT 0 NOT NULL") # <<< НОВОЕ ПОЛЕ
-        await _add_column_if_not_exists(conn, "user_oneui", "TEXT DEFAULT NULL")  # <<< НОВАЯ СТРОКА
+        await _add_column_if_not_exists(conn, "user_oneui", "total_income_earned_from_businesses", "BIGINT DEFAULT 0 NOT NULL") # <<< НОВОЕ ПОЛЕ        
         logger.info("Колонки таблицы 'user_oneui' проверены/добавлены.")
 
         # --- Таблица user_bonus_multipliers ---
