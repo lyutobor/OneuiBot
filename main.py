@@ -106,11 +106,12 @@ locks_dict_creation_lock = asyncio.Lock()
 # Вероятности для /oneui
 # main.py - НОВЫЙ ИСПРАВЛЕННЫЙ БЛОК
 try:
-    from responses import POSITIVE_RESPONSES, NEGATIVE_RESPONSES, POS_MICRO_CHANGES, NEG_MICRO_CHANGES, ONEUI_COOLDOWN_RESPONSES # <<< ДОБАВЛЕНО ONEUI_COOLDOWN_RESPONSES
+    from responses import POSITIVE_RESPONSES, NEGATIVE_RESPONSES, POS_MICRO_CHANGES, NEG_MICRO_CHANGES, ONEUI_COOLDOWN_RESPONSES, ONEUI_STREAK_INFO_DURING_COOLDOWN # <<< ДОБАВЛЕНО ONEUI_COOLDOWN_RESPONSES
 except ImportError:
     POSITIVE_RESPONSES = ["Отличные новости! Твоя версия OneUI увеличилась на %.1f!", "Поздравляю, обновление на %.1f установлено!"]
     NEGATIVE_RESPONSES = ["О нет! Произошел откат версии OneUI на %.1f.", "Кажется, что-то пошло не так. Версия уменьшилась на %.1f."]
     ONEUI_COOLDOWN_RESPONSES = ["Ты уже обновился. Следующая попытка после {time} ({timezone})."] # <<< ЗАГЛУШКА, ЕСЛИ ФАЙЛ НЕ НАЙДЕН
+    ONEUI_STREAK_INFO_DURING_COOLDOWN = ["🔥 Твой текущий стрик: <b>{streak_days}</b> д. (он не сбросится, если вернешься вовремя)."]
     #POS_MICRO_CHANGES: List[float] = [0.1, 0.2, 0.3, 0.4, 0.5]
     #NEG_MICRO_CHANGES: List[float] = [-0.1, -0.2, -0.3, -0.4, -0.5]
     logging.warning("Файл responses.py не найден или не содержит нужные константы, используются значения по умолчанию.")
@@ -1106,7 +1107,9 @@ async def oneui_command(message: Message):
                     user_streak_data_static_cooldown = await database.get_user_daily_streak(user_id)
                     static_streak_val_cooldown = user_streak_data_static_cooldown.get('current_streak', 0) if user_streak_data_static_cooldown else 0
                     if static_streak_val_cooldown > 0:
-                        streak_info_message = f"🔥 Твой текущий стрик: <b>{static_streak_val_cooldown}</b> д. (он не сбросится, если вернешься вовремя)."
+                        #streak_info_message = f"🔥 Твой текущий стрик: <b>{static_streak_val_cooldown}</b> д. (он не сбросится, если вернешься вовремя)."
+                        chosen_streak_template = random.choice(ONEUI_STREAK_INFO_DURING_COOLDOWN)
+                        streak_info_message = chosen_streak_template.format(streak_days=static_streak_val_cooldown)
                         final_reply_message += f"\n\n{streak_info_message}" # Добавляем информацию о стрике через две новые строки
 
                     await message.reply(final_reply_message, 
