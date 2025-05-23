@@ -97,7 +97,8 @@ async def init_db():
         await add_last_used_column(conn_ext=conn)
         await add_onecoins_column(conn_ext=conn)
         await add_telegram_chat_link_column(conn_ext=conn)
-        await _add_column_if_not_exists(conn, "user_oneui", "total_income_earned_from_businesses", "BIGINT DEFAULT 0 NOT NULL") # <<< НОВОЕ ПОЛЕ        
+        await _add_column_if_not_exists(conn, "user_oneui", "total_income_earned_from_businesses", "BIGINT DEFAULT 0 NOT NULL") # <<< НОВОЕ ПОЛЕ
+        
         logger.info("Колонки таблицы 'user_oneui' проверены/добавлены.")
 
         # --- Таблица user_bonus_multipliers ---
@@ -3598,4 +3599,109 @@ async def get_user_achievements(user_id: int, conn_ext: Optional[asyncpg.Connect
         if not conn_ext and conn and not conn.is_closed():
             await conn.close()
 
-# --- КОНЕЦ НОВЫХ ФУНКЦИЙ ДЛЯ ДОСТИЖЕНИЙ ---            
+# --- КОНЕЦ НОВЫХ ФУНКЦИЙ ДЛЯ ДОСТИЖЕНИЙ ---   
+async def create_event_queue_table():
+    """
+    Создает таблицу event_queue, если она не существует.
+    """
+    query = """
+    CREATE TABLE IF NOT EXISTS event_queue (
+        event_id SERIAL PRIMARY KEY,
+        user_id BIGINT NOT NULL,
+        event_type VARCHAR(50) NOT NULL,
+        event_data JSONB,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        processed BOOLEAN DEFAULT FALSE,
+        processed_at TIMESTAMP WITH TIME ZONE
+    );
+    """
+    conn = None
+    try:
+        conn = await asyncpg.connect(Config.DATABASE_URL)
+        await conn.execute(query)
+        logger.info("Таблица 'event_queue' проверена/создана успешно.")
+        return True
+    except Exception as e:
+        logger.error(f"Ошибка при создании/проверке таблицы 'event_queue': {e}", exc_info=True)
+        return False
+    finally:
+        if conn:
+            await conn.close()
+
+# Теперь добавьте функции для работы с очередью событий (если вы их ещё не добавили)
+async def add_event_to_queue(user_id: int, event_type: str, event_data: Dict[str, Any], conn_ext: Optional[asyncpg.Connection] = None) -> bool:
+    """
+    Добавляет событие в очередь для последующей обработки.
+    event_data будет сохранено как JSONB.
+    """
+    query = """
+        INSERT INTO event_queue (user_id, event_type, event_data, created_at)
+        VALUES ($1, $2, $3, NOW());
+    """
+    try:
+        if conn_ext:
+            await conn_ext.execute(query, user_id, event_type, json.dumps(event_data))
+        else:
+            # Используем пул соединений, если conn_ext не передан
+            async with asyncpg.create_pool(Config.DATABASE_URL) as pool:
+                async with pool.acquire() as conn:
+                    await conn.execute(query, user_id, event_type, json.dumps(event_data))
+        return True
+    except Exception as e:
+        logger.error(f"Failed to add event to queue for user {user_id}, type {event_type}: {e}", exc_info=True)
+        return False
+
+async def get_pending_events(limit: int = 100, conn_ext: Optional[asyncpg.Connection] = None) -> List[Dict[str, Any]]:
+    """
+    Получает необработанные события из очереди.
+    """
+    query = """
+        SELECT event_id, user_id, event_type, event_data, created_at, processed
+        FROM event_queue
+        WHERE processed = FALSE
+        ORDER BY created_at ASC
+        LIMIT $1;
+    """
+    records = []
+    try:
+        if conn_ext:
+            rows = await conn_ext.fetch(query, limit)
+        else:
+            async with asyncpg.create_pool(Config.DATABASE_URL) as pool:
+                async with pool.acquire() as conn:
+                    rows = await conn.fetch(query, limit)
+        for row in rows:
+            # asyncpg возвращает Record, преобразуем в dict для удобства
+            record_dict = dict(row)
+            # JSONB данные нужно распарсить, если asyncpg их не сделал автоматически (обычно делает)
+            if isinstance(record_dict.get('event_data'), str):
+                try:
+                    record_dict['event_data'] = json.loads(record_dict['event_data'])
+                except json.JSONDecodeError:
+                    logger.warning(f"Failed to decode JSON for event_data in event {record_dict.get('event_id')}")
+                    record_dict['event_data'] = {} # Fallback
+            records.append(record_dict)
+    except Exception as e:
+        logger.error(f"Failed to get pending events: {e}", exc_info=True)
+    return records
+
+async def mark_event_as_processed(event_id: int, conn_ext: Optional[asyncpg.Connection] = None) -> bool:
+    """
+    Помечает событие как обработанное.
+    """
+    query = """
+        UPDATE event_queue
+        SET processed = TRUE, processed_at = NOW()
+        WHERE event_id = $1;
+    """
+    try:
+        if conn_ext:
+            status = await conn_ext.execute(query, event_id)
+        else:
+            async with asyncpg.create_pool(Config.DATABASE_URL) as pool:
+                async with pool.acquire() as conn:
+                    status = await conn.execute(query, event_id)
+        return status == 'UPDATE 1' # Проверяем, что обновилась одна строка
+    except Exception as e:
+        logger.error(f"Failed to mark event {event_id} as processed: {e}", exc_info=True)
+        return False         

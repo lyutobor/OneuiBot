@@ -489,7 +489,8 @@ async def cmd_buyphone_start(message: Message, command: CommandObject, state: FS
         max_phones = getattr(Config, "MAX_PHONES_PER_USER", 2)
         if active_phones_count >= max_phones:
             await message.reply(
-                f"{user_link}, у вас уже максимальное количество телефонов ({active_phones_count}/{max_phones})."
+                f"{user_link}, у тебя уже максимальное количество телефонов ({active_phones_count}/{max_phones}).",
+                disable_web_page_preview=True
             )
             if conn_buy_phone and not conn_buy_phone.is_closed(): await conn_buy_phone.close()
             return
@@ -532,16 +533,10 @@ async def cmd_buyphone_start(message: Message, command: CommandObject, state: FS
             f"<b>{item_name_display}</b> ({chosen_color_canonical})\n"
             f"Цена: {actual_item_price} OneCoin(s)?\n" # <--- ИСПОЛЬЗУЕМ АКТУАЛЬНУЮ ЦЕНУ
             f"Ваш баланс: {current_balance} OneCoin(s).\n\n"
-            f"Ответьте 'Да' или 'Нет' в течение {CONFIRMATION_TIMEOUT_SECONDS_PHONE} секунд."
+            f"Ответьте 'Да' или 'Нет' в течение {CONFIRMATION_TIMEOUT_SECONDS_PHONE} секунд.",
+            disable_web_page_preview=True
         )
-        await check_and_grant_achievements(
-            user_id,
-            original_chat_id_of_action,
-            bot,
-            phone_bought_just_now=True, # Для "Твой Первый Трофей"
-            # Передаем данные для проверки достижений по сериям
-            phone_model_key_bought=phone_key
-        )        
+             
 
     except Exception as e_buy_start:
         logger.error(f"BuyPhone: Ошибка на старте покупки для user {user_id}, item {phone_model_key_arg}: {e_buy_start}", exc_info=True)
@@ -863,7 +858,11 @@ async def cmd_purchase_confirm_yes(message: Message, state: FSMContext, bot: Bot
                 active_phones_count = await database.count_user_active_phones(user_id, conn_ext=conn) # Используем транзакцию
                 max_phones = getattr(Config, "MAX_PHONES_PER_USER", 2)
                 if active_phones_count >= max_phones:
-                    await message.reply(f"{user_link}, у вас уже максимальное количество телефонов ({active_phones_count}/{max_phones}). Покупка отменена.", parse_mode="HTML")
+                    await message.reply(
+                        f"{user_link}, у вас уже максимальное количество телефонов ({active_phones_count}/{max_phones}). Покупка отменена.",
+                        parse_mode="HTML",
+                        disable_web_page_preview=True # <-- ДОБАВЬТЕ ЭТУ СТРОКУ
+                    )
                     await state.clear()
                     return
 
@@ -891,6 +890,8 @@ async def cmd_purchase_confirm_yes(message: Message, state: FSMContext, bot: Bot
 
                 if not new_phone_inventory_id:
                     raise Exception(f"Не удалось добавить телефон {phone_key} в инвентарь user {user_id}.")
+                    
+                    
 
                 new_balance_after_purchase = current_balance_before_op - phone_price
                 await message.reply(
@@ -898,22 +899,16 @@ async def cmd_purchase_confirm_yes(message: Message, state: FSMContext, bot: Bot
                     f"Вы успешно купили <b>{html.escape(phone_name)}</b> ({phone_color}) за {phone_price} OneCoin(s).\n"
                     f"ID в инвентаре: <code>{new_phone_inventory_id}</code>\n"
                     f"Ваш новый баланс в этом чате: {new_balance_after_purchase} OneCoin(s).",
-                    parse_mode="HTML"
+                    parse_mode="HTML",
+                    disable_web_page_preview=True
                 )
                 await send_telegram_log(bot,
                     f"📱 Телефон куплен: {user_link} купил <b>{html.escape(phone_name)}</b> ({phone_color}, ключ: {phone_key}) "
                     f"за {phone_price} OC. ID: {new_phone_inventory_id}. Баланс: {new_balance_after_purchase} OC."
                 )
                 
-                # --- ВЫЗОВ ПРОВЕРКИ ДОСТИЖЕНИЙ ---
-                await check_and_grant_achievements(
-                    user_id,
-                    original_chat_id_of_action,
-                    bot,
-                    phone_bought_just_now=True, # Для "Твой Первый Трофей"
-                        # Передаем данные для проверки достижений по сериям
-                    phone_model_key_bought=phone_key
-                )
+                
+                
                     # --- КОНЕЦ ВЫЗОВА ПРОВЕРКИ ДОСТИЖЕНИЙ ---
 
             elif action_type == "sell_phone":
@@ -1071,14 +1066,7 @@ async def cmd_purchase_confirm_yes(message: Message, state: FSMContext, bot: Bot
                     f"(ID: {phone_inv_id_to_insure}) на {duration_display_text_state} до {new_insurance_until_display_confirm}. "
                     f"Цена: {insurance_cost_state} OC. Баланс: {new_balance_after_op} OC."
                 )
-                # --- ВЫЗОВ ПРОВЕРКИ ДОСТИЖЕНИЙ ---
-                await check_and_grant_achievements(
-                    user_id,
-                    original_chat_id_of_action,
-                    bot,
-                    phone_insured_just_now=True, # Для "Договор С Тенью"
-                    phone_id_insured=phone_inv_id_to_insure # Передаем ID застрахованного телефона
-                )
+                
 
 
 
@@ -1319,20 +1307,7 @@ async def cmd_purchase_confirm_yes(message: Message, state: FSMContext, bot: Bot
                  )
                  
                  # --- ВЫЗОВ ПРОВЕРКИ ДОСТИЖЕНИЙ ---
-                 await check_and_grant_achievements(
-                     user_id,
-                     original_chat_id_of_action,
-                     bot,
-                     phone_repaired_just_now=True, # Для "Феникс Из Пепла Инженерии" (если это первое достижение)
-                     # Для прогрессивного достижения "Феникс Из Пепла Инженерии" (5 ремонтов)
-                     # и "Целитель Мёртвых Механизмов" (10 ремонтов):
-                     # Здесь нужно получить актуальное количество ремонтов.
-                     # Допустим, мы будем хранить его в progress_data самого достижения "Феникс Из Пепла Инженерии".
-                     # Это усложнит check_and_grant_achievements, но пока пусть так:
-                     phone_repaired_total_count=1, # Заглушка, нужно будет получать из БД
-                     repaired_with_bm_component=(True if component_user_item_id_for_repair else False), # Если был использован компонент с ЧР
-                     repaired_battery_breakdown_just_now=(True if 'battery_break_after_utc' in phone_db_data and phone_db_data['battery_break_after_utc'] is not None else False) # Если это был ремонт после полной разрядки
-                 )
+                 
                  # --- КОНЕЦ ВЫЗОВА ПРОВЕРКИ ДОСТИЖЕНИЙ ---
                  
                  
@@ -1353,7 +1328,8 @@ async def cmd_purchase_confirm_yes(message: Message, state: FSMContext, bot: Bot
                     await message.reply(
                         f"{user_link}, у вас уже максимальное количество телефонов ({active_phones_count_craft}/{max_phones_craft}). "
                         f"Сборка отменена.",
-                        parse_mode="HTML"
+                        parse_mode="HTML",
+                        disable_web_page_preview=True
                     )
                     return
 
@@ -1506,14 +1482,7 @@ async def cmd_purchase_confirm_yes(message: Message, state: FSMContext, bot: Bot
                             "Изменения должны были быть отменены. Если это не так, обратитесь к администратору.",
                             parse_mode="HTML")
         # --- ВЫЗОВ ПРОВЕРКИ ДОСТИЖЕНИЙ ---
-        await check_and_grant_achievements(
-            user_id,
-            original_chat_id_of_action,
-            bot,
-            phone_crafted_just_now=True, # Для "Кузнец Самодельного Ада"
-            phone_crafted_total_count=1, # Заглушка, нужно получать из БД
-            crafted_series_set_current={phone_series_to_craft} # Для "Творец Искусственных Жизней"
-        )
+        
                 # --- КОНЕЦ ВЫЗОВА ПРОВЕРКИ ДОСТИЖЕНИЙ ---                          
                             
     finally:
@@ -1696,13 +1665,7 @@ async def cmd_insurephone_start(message: Message, command: CommandObject, state:
         await message.reply("\n".join(confirmation_message_parts), parse_mode="HTML")
         
         # --- ВЫЗОВ ПРОВЕРКИ ДОСТИЖЕНИЙ ---
-        await check_and_grant_achievements(
-            user_id,
-            original_chat_id_of_action,
-            bot,
-            phone_insured_just_now=True, # Для "Договор С Тенью"
-            phone_id_insured=phone_inv_id_to_insure # Передаем ID застрахованного телефона
-        )
+        
                 # --- КОНЕЦ ВЫЗОВА ПРОВЕРКИ ДОСТИЖЕНИЙ ---
 
     except Exception as e_insure_start:
@@ -2112,6 +2075,7 @@ async def cmd_myphones(message: Message, bot: Bot): # bot остается, ес
                 else: insurance_status_str_display = "📄❌ Страховка истекла"
             phone_line_parts.append(f"   {insurance_status_str_display}")
 
+            phone_line = "\n".join(phone_line_parts) # Объединяем части в одну строку
             response_parts.append(phone_line) # ОДНО добавление строки телефона в список
         
         response_parts.append("\n--------------------")
@@ -2771,14 +2735,7 @@ async def cmd_charge_phone(message: Message, command: CommandObject, bot: Bot):
             )
             
             
-            await check_and_grant_achievements(
-                user_id,
-                chat_id,
-                bot,
-                phone_charged_just_now=True, # Для одноразового достижения "Первая зарядка" (если есть)
-                phone_charged_total_count=1 # Пока заглушка. Реальный счетчик нужно будет получать из БД.
-                                            # Например, из user_achievements.progress_data или отдельной таблицы.
-            )
+            
             # --- КОНЕЦ ВЫЗОВА ПРОВЕРКИ ДОСТИЖЕНИЙ ---
 
     except Exception as e_charge:
@@ -2935,12 +2892,7 @@ async def cmd_upgrade_memory(message: Message, command: CommandObject, bot: Bot)
             )
             
             # --- ВЫЗОВ ПРОВЕРКИ ДОСТИЖЕНИЙ ---
-            await check_and_grant_achievements(
-                user_id,
-                chat_id,
-                bot,
-                phone_upgraded_memory_gb=new_memory_total # Передаем новую память для "Расширитель Сознания"
-            )
+            
             # --- КОНЕЦ ВЫЗОВА ПРОВЕРКИ ДОСТИЖЕНИЙ ---
 
     except Exception as e_upgrade:
@@ -2985,7 +2937,8 @@ async def cmd_craftphone_start(message: Message, command: CommandObject, state: 
             await message.reply(
                 f"{user_link}, у вас уже максимальное количество телефонов ({active_phones_count}/{max_phones}). "
                 f"Вы не можете собрать новый, пока не продадите один из существующих (/sellphone).",
-                parse_mode="HTML"
+                parse_mode="HTML",
+                disable_web_page_preview=True
             )
             return
     except Exception as e_count:
@@ -3490,12 +3443,7 @@ async def cmd_keep_won_phone(message: Message, command: CommandObject, bot: Bot)
             # Транзакция завершится успешно при выходе из async with
             
             # --- ВЫЗОВ ПРОВЕРКИ ДОСТИЖЕНИЙ ---
-            await check_and_grant_achievements(
-                user_id,
-                chat_id, # chat_id, где пользователь вызвал команду
-                bot,
-                phone_exchanged_won_for_old=True # Для "Стратег Выгодного Обмена"
-            )
+            
             # --- КОНЕЦ ВЫЗОВА ПРОВЕРКИ ДОСТИЖЕНИЙ ---
 
     except Exception as e_keep:
