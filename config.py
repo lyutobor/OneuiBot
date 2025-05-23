@@ -966,8 +966,8 @@ class Config:
             "type": "oneui_version_negative_threshold", "target_value": -10.0, "icon": "📉"
         },
         "secret_black_hole_oneui": {
-            "name": "Чёрная Дыра (OneUI)", "description": "Достичь версии OneUI -50.0.",
-            "type": "oneui_version_negative_threshold", "target_value": -50.0, "icon": "⚫"
+            "name": "Чёрная Дыра (OneUI)", "description": "Достичь версии OneUI -13.0.",
+            "type": "oneui_version_negative_threshold", "target_value": -13.0, "icon": "⚫"
         },
         "secret_echo_of_void": {
             "name": "Эхо Пустоты", "description": "Применить множитель x0.0 к OneUI.",
