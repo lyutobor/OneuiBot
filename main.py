@@ -1203,7 +1203,7 @@ async def oneui_command(message: Message):
 
                         # Используем fill_char для заполненных кубиков
                         pb_streak = fill_char * pb_streak_fill_count + Config.PROGRESS_BAR_EMPTY_CHAR * (10 - pb_streak_fill_count)
-                        response_message_parts.append(f"<b>{name_for_pb}</b>: {new_calculated_streak}/{target_for_pb['target_days']}\n[{pb_streak}]")
+                        response_message_parts.append(f"<b>{name_for_pb}</b>: {new_calculated_streak}/{target_for_pb['target_days']}\n{pb_streak}")
 
                 # Если стрик достиг последней цели в конфиге (этот блок остается, он ловит самый последний, "легендарный" стрик)
                 elif Config.DAILY_STREAKS_CONFIG and new_calculated_streak >= Config.DAILY_STREAKS_CONFIG[-1]['target_days']:
