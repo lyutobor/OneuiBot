@@ -105,10 +105,11 @@ locks_dict_creation_lock = asyncio.Lock()
 
 # Вероятности для /oneui
 try:
-    from responses import POSITIVE_RESPONSES, NEGATIVE_RESPONSES, POS_MICRO_CHANGES, NEG_MICRO_CHANGES
+    from responses import POSITIVE_RESPONSES, NEGATIVE_RESPONSES, POS_MICRO_CHANGES, NEG_MICRO_CHANGES, ONEUI_COOLDOWN_RESPONSES, ONEUI_STREAK_INFO_DURING_COOLDOWN, ONEUI_STREAK_INFO_DURING_COOLDOWN
 except ImportError:
     POSITIVE_RESPONSES = ["Отличные новости! Твоя версия OneUI увеличилась на %.1f!", "Поздравляю, обновление на %.1f установлено!"]
     NEGATIVE_RESPONSES = ["О нет! Произошел откат версии OneUI на %.1f.", "Кажется, что-то пошло не так. Версия уменьшилась на %.1f."]
+    ONEUI_STREAK_INFO_DURING_COOLDOWN = ["🔥 Твой текущий стрик: <b>{streak_days}</b> д. (он не сбросится, если вернешься вовремя)."] # <-- Вот эта строка
     #POS_MICRO_CHANGES: List[float] = [0.1, 0.2, 0.3, 0.4, 0.5]
     #NEG_MICRO_CHANGES: List[float] = [-0.1, -0.2, -0.3, -0.4, -0.5]
     logging.warning("Файл responses.py не найден или не содержит нужные константы, используются значения по умолчанию.")
@@ -1089,16 +1090,29 @@ async def oneui_command(message: Message):
                 if on_cooldown_status and next_reset_time_utc:
                     # Пользователь на обычном кулдауне
                     next_reset_local = next_reset_time_utc.astimezone(local_tz)
+                    chosen_cooldown_template = random.choice(ONEUI_COOLDOWN_RESPONSES)
+                    cooldown_message = chosen_cooldown_template.format(time=next_reset_local.strftime('%H:%M'), zone=local_tz.zone)
+                    
                     # Показываем текущий стрик (не обновляя его)
                     user_streak_data_static_cooldown = await database.get_user_daily_streak(user_id)
                     static_streak_val_cooldown = user_streak_data_static_cooldown.get('current_streak', 0) if user_streak_data_static_cooldown else 0
+                    
                     if static_streak_val_cooldown > 0:
-                         response_message_parts.append(f"🔥 Твой текущий стрик: <b>{static_streak_val_cooldown}</b> д. (он не сбросится, если вернешься вовремя).")
+                         chosen_streak_template = random.choice(ONEUI_STREAK_INFO_DURING_COOLDOWN)
+                         streak_info_message = chosen_streak_template.format(streak_days=static_streak_val_cooldown)
+                         response_message_parts.append(streak_info_message) # Добавляем инфо о стрике в список
+                    
+                    # Формируем итоговое сообщение о кулдауне, добавляя к нему уже накопленные части
+                    # Если response_message_parts содержит что-то (например, инфо о стрике),
+                    # то между ними и сообщением о кулдауне будет новая строка.
+                    final_cooldown_response = f"{user_link}, " + "\n".join(response_message_parts)
+                    if response_message_parts: # Если что-то уже есть, добавляем двойной перенос для разделения
+                        final_cooldown_response += "\n\n" + cooldown_message
+                    else: # Иначе, если список был пуст, добавляем сразу сообщение о кулдауне
+                        final_cooldown_response += cooldown_message
 
-                    await message.reply(f"{user_link}, " + "\n".join(response_message_parts) + 
-                                      (f"\n\nТы уже обновился. Следующая попытка после {next_reset_local.strftime('%H:%M')} ({local_tz.zone})" if not response_message_parts else 
-                                       f"Ты уже обновился. Следующая попытка после {next_reset_local.strftime('%H:%M')} ({local_tz.zone})"),
-                                      parse_mode="HTML", disable_web_page_preview=True)
+
+                    await message.reply(final_cooldown_response, parse_mode="HTML", disable_web_page_preview=True)
                     logger.info(f"/oneui user {user_id} in chat {chat_id_current_message} - ON REGULAR COOLDOWN. Streak NOT processed.")
                     return
                 else:
