@@ -322,6 +322,7 @@ class Config:
     ROBBANK_ALIASES = ["robbank", "ограбитьбанк", "налет", "ограбление", "bankrob"]
     ROBBANK_COOLDOWN_DAYS = 1 # Раз в игровой день
     ROBBANK_RESET_HOUR = 21 # Час сброса кулдауна (используем общий RESET_HOUR)
+    ROBBANK_ONEUI_BLOCK_DURATION_DAYS = 2 
     ROBBANK_PREPARATION_COST_MIN = 50
     ROBBANK_PREPARATION_COST_MAX = 150
     ROBBANK_RESULT_DELAY_MIN_SECONDS = 300 # 1 минута

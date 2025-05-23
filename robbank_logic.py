@@ -153,7 +153,17 @@ async def _process_robbank_result(
     else: # Арест
         now_utc = datetime.now(dt_timezone.utc)
         local_tz = pytz_timezone(Config.TIMEZONE)
-        block_until_local = (now_utc.astimezone(local_tz) + timedelta(days=1)).replace(hour=Config.ROBBANK_RESET_HOUR, minute=0, second=0, microsecond=0)
+        
+        # Рассчитываем время окончания блокировки на основе новой переменной
+        block_until_local = (now_utc.astimezone(local_tz) + timedelta(days=Config.ROBBANK_ONEUI_BLOCK_DURATION_DAYS)).replace(hour=Config.ROBBANK_RESET_HOUR, minute=0, second=0, microsecond=0)
+        
+        # Если текущее время по местному часовому поясу уже позже часа сброса
+        # (например, сейчас 22:00, а сброс в 21:00), то сброс будет на следующий день после этих 'N' дней.
+        # Поэтому нужно убедиться, что блокировка будет до 21:00 в конце указанного периода.
+        # Если block_until_local уже в прошлом, то надо перенести на следующий день.
+        if block_until_local < now_utc.astimezone(local_tz):
+            block_until_local += timedelta(days=1)
+
         block_until_utc = block_until_local.astimezone(dt_timezone.utc)
 
         streak_info_msg_part = ""
