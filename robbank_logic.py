@@ -182,7 +182,7 @@ async def _process_robbank_result(
             streak_info_msg_part = "(Не забудь сегодня использовать /oneui, чтобы не потерять возможный стрик!)"
         
         message_to_send = random.choice(ROBBANK_ARREST_PHRASES).format(
-            block_time=block_until_local.strftime('%d.%m.%Y %H:%M:%S %Z'),
+            block_time=block_until_local.strftime('%d.%m %H:%M'),
             streak_info=streak_info_msg_part
         )
         log_message_parts.append(f"  <b>РЕЗУЛЬТАТ: АРЕСТ.</b> /oneui заблокирован до {block_until_utc.isoformat()}.")
@@ -253,7 +253,7 @@ async def handle_robbank_command(message: Message, bot: Bot): # bot: Bot мож�
                     current_day_start_local -= timedelta(days=1)
                 cooldown_ends_local = current_day_start_local + timedelta(days=Config.ROBBANK_COOLDOWN_DAYS)
                 if last_attempt_utc.astimezone(local_tz) > current_day_start_local:
-                    await message.reply(random.choice(ROBBANK_COOLDOWN_PHRASES).format(cooldown_ends_time=cooldown_ends_local.strftime('%d.%m %H:%M')),
+                    await message.reply(random.choice(ROBBANK_COOLDOWN_PHRASES).format(cooldown_ends_time=cooldown_ends_local.strftime(' %H:%M')),
                                         disable_web_page_preview=True)
                     return
             
