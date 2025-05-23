@@ -1166,14 +1166,46 @@ async def oneui_command(message: Message):
             else: # Если это доп. попытка, стрик не обновляется, но текущий прогресс показывается
                 new_calculated_streak = current_streak_in_db # Используем значение из БД для отображения
 
-            # Отображение стрика (актуальное значение new_calculated_streak)
+# Отображение стрика (актуальное значение new_calculated_streak)
             if new_calculated_streak > 0:
                 response_message_parts.append(f"🔥 Текущий стрик: <b>{new_calculated_streak}</b> д.")
+
+                # Ищем следующую цель стрика
                 next_goal_streak = next((g for g in Config.DAILY_STREAKS_CONFIG if g['target_days'] > new_calculated_streak), None)
-                if next_goal_streak and (next_goal_streak['target_days'] - new_calculated_streak) <= next_goal_streak.get('progress_show_within_days', 3):
-                    pb_streak_fill_count = round(new_calculated_streak / next_goal_streak['target_days'] * 6)
-                    pb_streak = Config.PROGRESS_BAR_FILLED_CHAR * pb_streak_fill_count + Config.PROGRESS_BAR_EMPTY_CHAR * (6 - pb_streak_fill_count)
-                    response_message_parts.append(f"<b>{html.escape(next_goal_streak['name'])}</b>: {new_calculated_streak}/{next_goal_streak['target_days']} [{pb_streak}]")
+
+                # Ищем текущую цель стрика, если она достигнута (например, 7/7)
+                current_achieved_goal = next((g for g in Config.DAILY_STREAKS_CONFIG if g['target_days'] == new_calculated_streak), None)
+
+                # Условие для отображения прогресс-бара
+                if (next_goal_streak and (next_goal_streak['target_days'] - new_calculated_streak) <= next_goal_streak.get('progress_show_within_days', 7)) or current_achieved_goal:
+
+                    target_for_pb = next_goal_streak
+                    name_for_pb = ""
+
+                    # Символ, который будет использоваться для заполнения бара
+                    fill_char = Config.PROGRESS_BAR_FILLED_CHAR
+
+                    if current_achieved_goal:
+                        target_for_pb = current_achieved_goal
+                        name_for_pb = html.escape(current_achieved_goal['name']) + " (Завершено)"
+                        fill_char = Config.PROGRESS_BAR_FULL_STREAK_CHAR # Используем зеленый кубик для завершенного стрика
+                    elif next_goal_streak:
+                        name_for_pb = html.escape(next_goal_streak['name'])
+
+                    if target_for_pb:
+                        pb_streak_fill_count = round(new_calculated_streak / target_for_pb['target_days'] * 10) # Увеличиваем на 10, чтобы было 10 квадратиков
+                        if pb_streak_fill_count > 10: # Ограничиваем, чтобы не было больше 10 квадратиков
+                            pb_streak_fill_count = 10
+
+                        # Если цель достигнута, убедимся, что бар полностью заполнен
+                        if current_achieved_goal and new_calculated_streak == current_achieved_goal['target_days']:
+                            pb_streak_fill_count = 10
+
+                        # Используем fill_char для заполненных кубиков
+                        pb_streak = fill_char * pb_streak_fill_count + Config.PROGRESS_BAR_EMPTY_CHAR * (10 - pb_streak_fill_count)
+                        response_message_parts.append(f"<b>{name_for_pb}</b>: {new_calculated_streak}/{target_for_pb['target_days']}\n[{pb_streak}]")
+
+                # Если стрик достиг последней цели в конфиге (этот блок остается, он ловит самый последний, "легендарный" стрик)
                 elif Config.DAILY_STREAKS_CONFIG and new_calculated_streak >= Config.DAILY_STREAKS_CONFIG[-1]['target_days']:
                      response_message_parts.append(f"👑 Вы <b>{html.escape(Config.DAILY_STREAKS_CONFIG[-1]['name'])}</b>! Легендарный стрик: {new_calculated_streak} д.!")
             
@@ -1231,7 +1263,7 @@ async def oneui_command(message: Message):
                                      random.choice(POSITIVE_RESPONSES).replace("%.1f", f"<b>{base_oneui_change:.1f}</b>") if base_oneui_change > 0.0 else \
                                      random.choice(NEGATIVE_RESPONSES).replace("%.1f", f"<b>{abs(base_oneui_change):.1f}</b>")
             response_message_parts.insert(0, main_roll_response_part)
-            response_message_parts.append(f"<b>Итоговая версия OneUI: <code>{new_version_final_rounded:.1f}</code>.</b>")
+            response_message_parts.append(f"\n<b>Итоговая версия OneUI: <code>{new_version_final_rounded:.1f}</code>.</b>")
 
             await database.update_user_version(
                 user_id, chat_id_current_message, new_version_final_rounded,

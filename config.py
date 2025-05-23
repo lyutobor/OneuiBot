@@ -176,7 +176,8 @@ class Config:
     DEFAULT_STREAK_BREAK_COMPENSATION_VERSION = 0.1
     DEFAULT_STREAK_BREAK_COMPENSATION_ONECOIN = 0
 
-    PROGRESS_BAR_FILLED_CHAR = '🟩'
+    PROGRESS_BAR_FILLED_CHAR = '🟨'
+    PROGRESS_BAR_FULL_STREAK_CHAR = '🟩'
     PROGRESS_BAR_EMPTY_CHAR = '⬜️'
 
     # === Настройки Рынка ===
