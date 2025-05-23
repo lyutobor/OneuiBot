@@ -1371,38 +1371,94 @@ async def get_user_top_versions(user_id, limit=5) -> List[Dict[str, Any]]:
 
 # В файле database.py
 
-async def get_user_version_history(user_id: int, chat_id: Optional[int] = None, limit: int = 10) -> List[Dict[str, Any]]:
+async def get_user_version_history(user_id: int, chat_id: Optional[int] = None, limit: int = 15) -> List[Dict[str, Any]]:
     conn = await get_connection()
     try:
+        query_parts = []
+        params = [user_id]
+        
+        # Базовый SELECT для получения нужных колонок
+        select_clause = """
+            SELECT
+                version,
+                changed_at,
+                chat_id,
+                full_name_at_change
+        """
+        
+        # Условие WHERE
+        where_clause = "WHERE user_id = $1 AND version IS NOT NULL"
+        
         if chat_id:
-            # Запрос для истории в конкретном чате
-            query = """
-                SELECT version, changed_at, chat_id, full_name_at_change
+            select_clause += ", NULL as chat_title_from_user_oneui" # Добавим, чтобы структура совпадала
+            where_clause += " AND chat_id = $2"
+            params.append(chat_id)
+            
+            # Для истории в конкретном чате, просто выбираем данные
+            query = f"""
+                {select_clause}
                 FROM user_version_history
-                WHERE user_id = $1 AND chat_id = $2 AND version IS NOT NULL
+                {where_clause}
                 ORDER BY changed_at DESC
                 LIMIT $3
             """
-            params = (user_id, chat_id, limit)
+            params.append(limit) # Лимит всегда последний
         else:
-            # Запрос для "глобальной" истории пользователя по всем чатам (если это нужно)
-            # Этот запрос может быть менее полезен, если вы всегда показываете историю в контексте чата.
-            # Если он не нужен, можно упростить функцию, оставив только логику с chat_id.
-            # Для примера, оставим его, но добавим full_name_at_change.
-            # Также можно добавить user_oneui.chat_title для контекста.
-            query = """
-                SELECT uvh.version, uvh.changed_at, uvh.chat_id, uvh.full_name_at_change,
-                       COALESCE(uo.chat_title, 'Неизвестный чат') as chat_title_from_user_oneui
+            # Для глобальной истории, присоединяем user_oneui для chat_title
+            select_clause += """,
+                COALESCE(uo.chat_title, 'Неизвестный чат') as chat_title_from_user_oneui
+            """
+            query = f"""
+                {select_clause}
                 FROM user_version_history uvh
                 LEFT JOIN user_oneui uo ON uvh.user_id = uo.user_id AND uvh.chat_id = uo.chat_id
-                WHERE uvh.user_id = $1 AND uvh.version IS NOT NULL
+                {where_clause}
                 ORDER BY uvh.changed_at DESC
                 LIMIT $2
             """
-            params = (user_id, limit)
+            params.append(limit) # Лимит всегда последний
 
         result_records = await conn.fetch(query, *params)
-        return [dict(r) for r in result_records]
+        
+        processed_records = []
+        if result_records:
+            # Переворачиваем для обработки от старых к новым
+            # records_for_calc = [dict(r) for r in reversed(result_records)]
+            
+            # Теперь, когда мы получаем данные, отсортированные по DESC и ограниченные LIMIT,
+            # мы хотим рассчитать разницу между последовательными записями в этом *результирующем наборе*.
+            # Для этого нам нужно пройти по ним в обратном порядке (от самой старой в наборе к самой новой).
+            
+            # Сохраним предыдущую версию для вычисления разницы в рамках отображаемого списка
+            # Изначально устанавливаем null или какое-то значение-маркер, чтобы не показывать разницу для самой старой записи
+            previous_version_in_display = None 
+            
+            # Проходим по записям в обратном порядке (от самой старой к самой новой, которую мы хотим вывести вверху)
+            # Чтобы в цикле иметь доступ к предыдущей версии, мы должны обрабатывать их от самой старой к самой новой.
+            # Поэтому мы переворачиваем result_records, обрабатываем, а потом снова переворачиваем.
+
+            # Создаем список словарей из полученных записей
+            temp_records_list = [dict(r) for r in result_records]
+            
+            # Переворачиваем, чтобы начать с самой старой записи из полученного списка
+            temp_records_list.reverse() 
+            
+            for i, record_dict in enumerate(temp_records_list):
+                current_version = float(record_dict['version'])
+                
+                # Для первой записи в отсортированном по ASC списке (то есть, самой старой в LIMIT)
+                # или если предыдущей версии нет (первая запись в истории вообще)
+                if previous_version_in_display is None:
+                    record_dict['version_diff'] = None # Разница не определена для первой записи
+                else:
+                    record_dict['version_diff'] = round(current_version - previous_version_in_display, 1)
+                
+                previous_version_in_display = current_version
+                processed_records.append(record_dict)
+        
+        # Возвращаем список в обратном порядке, чтобы самые свежие записи были сверху
+        processed_records.reverse()
+        return processed_records
     except Exception as e:
         logger.error(f"DB: Ошибка в get_user_version_history для user {user_id} (chat_id: {chat_id}): {e}", exc_info=True)
         return []

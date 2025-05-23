@@ -1093,27 +1093,23 @@ async def oneui_command(message: Message):
                     chosen_cooldown_template = random.choice(ONEUI_COOLDOWN_RESPONSES)
                     cooldown_message = chosen_cooldown_template.format(time=next_reset_local.strftime('%H:%M'), zone=local_tz.zone)
                     
-                    # Показываем текущий стрик (не обновляя его)
-                    user_streak_data_static_cooldown = await database.get_user_daily_streak(user_id)
-                    static_streak_val_cooldown = user_streak_data_static_cooldown.get('current_streak', 0) if user_streak_data_static_cooldown else 0
-                    
-                    if static_streak_val_cooldown > 0:
-                         chosen_streak_template = random.choice(ONEUI_STREAK_INFO_DURING_COOLDOWN)
-                         streak_info_message = chosen_streak_template.format(streak_days=static_streak_val_cooldown)
-                         response_message_parts.append(streak_info_message) # Добавляем инфо о стрике в список
-                    
-                    # Формируем итоговое сообщение о кулдауне, добавляя к нему уже накопленные части
-                    # Если response_message_parts содержит что-то (например, инфо о стрике),
-                    # то между ними и сообщением о кулдауне будет новая строка.
-                    final_cooldown_response = f"{user_link}, " + "\n".join(response_message_parts)
-                    if response_message_parts: # Если что-то уже есть, добавляем двойной перенос для разделения
-                        final_cooldown_response += "\n\n" + cooldown_message
-                    else: # Иначе, если список был пуст, добавляем сразу сообщение о кулдауне
-                        final_cooldown_response += cooldown_message
+                    # Сначала добавляем сообщение о кулдауне
+                    response_message_parts.append(cooldown_message) #
 
+                    # Затем, если есть стрик, добавляем информацию о нем
+                    user_streak_data_static_cooldown = await database.get_user_daily_streak(user_id) #
+                    static_streak_val_cooldown = user_streak_data_static_cooldown.get('current_streak', 0) if user_streak_data_static_cooldown else 0 #
+                    
+                    if static_streak_val_cooldown > 0: #
+                         chosen_streak_template = random.choice(ONEUI_STREAK_INFO_DURING_COOLDOWN) #
+                         streak_info_message = chosen_streak_template.format(streak_days=static_streak_val_cooldown) #
+                         response_message_parts.append(f"\n\n{streak_info_message}") # Добавляем инфо о стрике с новой строки #
+                    
+                    # Формируем итоговое сообщение, просто соединяя части
+                    final_cooldown_response = f"{user_link}, " + "".join(response_message_parts) #
 
-                    await message.reply(final_cooldown_response, parse_mode="HTML", disable_web_page_preview=True)
-                    logger.info(f"/oneui user {user_id} in chat {chat_id_current_message} - ON REGULAR COOLDOWN. Streak NOT processed.")
+                    await message.reply(final_cooldown_response, parse_mode="HTML", disable_web_page_preview=True) #
+                    logger.info(f"/oneui user {user_id} in chat {chat_id_current_message} - ON REGULAR COOLDOWN. Streak NOT processed.") #
                     return
                 else:
                     # Кулдауна нет, это доступная бесплатная попытка
@@ -1452,15 +1448,40 @@ async def my_history_command(message: Message, bot: Bot):
     user_link = get_user_mention_html(user_id, full_name, username)
     try:
         history_records = await database.get_user_version_history(user_id, chat_id=chat_id, limit=15)
-        if not history_records: return await message.reply(f"{user_link}, у вас пока нет истории версий OneUI в этом чате. Используйте <code>/oneui</code>!")
+        if not history_records: return await message.reply(f"{user_link}, у вас пока нет истории версий OneUI в этом чате. Используйте <code>/oneui</code>!", disable_web_page_preview=True)
+
         response_lines = [f"<b>📜 Ваша история версий OneUI в этом чате (последние {len(history_records)}):</b>"]
         local_tz = pytz_timezone(Config.TIMEZONE)
+
+        # Обрабатываем записи, чтобы показать разницу.
+        # history_records уже отсортированы DESCENDING (от новой к старой)
+        # и содержат 'version_diff' рассчитанный относительно предыдущей записи в БД
+        # или 0.0 для первой записи.
+
         for i, record in enumerate(history_records):
-            response_lines.append(f"  <code>{i+1:2}.</code> Версия <b>{record['version']:.1f}</b> от {record['changed_at'].astimezone(local_tz).strftime('%d.%m.%Y %H:%M:%S %Z')}")
+            version_text = f"V. <b>{record['version']:.1f}</b>"
+            diff_text = ""
+            # Если это первая запись в списке (самая новая), или diff 0.0, или diff еще не посчитан
+            # ИЛИ если это первая запись, которую мы показываем после ЛИМИТА
+            # (то есть, мы не знаем ее реальную предыдущую)
+            if i == len(history_records) - 1: # Это самая старая запись в отображаемом списке
+                diff_text = "" # Для самой старой записи в отображаемом списке не показываем разницу
+            elif record.get('version_diff') is not None:
+                diff_value = float(record['version_diff'])
+                if diff_value > 0:
+                    diff_text = f" (<span class='tg-spoiler'>+{diff_value:.1f}</span>)"
+                elif diff_value < 0:
+                    diff_text = f" (<span class='tg-spoiler'>{diff_value:.1f}</span>)"
+                else:
+                    diff_text = " (<span class='tg-spoiler'>без изменений</span>)"
+
+            response_lines.append(
+                f"  <code>{len(history_records) - i:2}.</code> {version_text}{diff_text} {record['changed_at'].astimezone(local_tz).strftime('%d.%m  %H:%M')}"
+            )
         await message.reply("\n".join(response_lines), parse_mode="HTML", disable_web_page_preview=True)
     except Exception as e:
         logger.error(f"Error in /my_history for {user_link} in chat {chat_id}: {e}", exc_info=True)
-        await message.reply("Произошла ошибка при получении вашей истории версий.")
+        await message.reply("Произошла ошибка при получении вашей истории версий.", disable_web_page_preview=True)
         await send_telegram_log(bot, f"🔴 Ошибка в /my_history для {user_link}: <pre>{html.escape(str(e))}</pre>")
 
 
@@ -1471,26 +1492,43 @@ async def my_history_command(message: Message, bot: Bot):
 ))
 async def user_history_command(message: Message, command: CommandObject, bot: Bot):
     calling_user = message.from_user
-    if not calling_user: return await message.reply("Не удалось определить, кто вызвал команду.")
+    if not calling_user: return await message.reply("Не удалось определить, кто вызвал команду.", disable_web_page_preview=True)
     target_user_data = await resolve_target_user(message, command, bot)
     if not target_user_data:
         if not command.args and not message.reply_to_message:
-            await message.reply("Укажите цель (ID/@user/ответ) для <code>/user_history</code> или используйте <code>/my_history</code> для своей.")
+            await message.reply("Укажите цель (ID/@user/ответ) для <code>/user_history</code> или используйте <code>/my_history</code> для своей.", disable_web_page_preview=True)
         return
     target_user_id, target_full_name, target_username = target_user_data
     target_user_link = get_user_mention_html(target_user_id, target_full_name, target_username)
     current_chat_id = message.chat.id
     try:
         history_records = await database.get_user_version_history(target_user_id, chat_id=current_chat_id, limit=15)
-        if not history_records: return await message.reply(f"У пользователя {target_user_link} нет истории версий OneUI в этом чате.")
+        if not history_records: return await message.reply(f"У пользователя {target_user_link} нет истории версий OneUI в этом чате.", disable_web_page_preview=True)
+
         response_lines = [f"<b>📜 История версий OneUI {target_user_link} в этом чате (последние {len(history_records)}):</b>"]
         local_tz = pytz_timezone(Config.TIMEZONE)
+
         for i, record in enumerate(history_records):
-            response_lines.append(f"  <code>{i+1:2}.</code> Версия <b>{record['version']:.1f}</b> от {record['changed_at'].astimezone(local_tz).strftime('%d.%m.%Y %H:%M:%S %Z')}")
+            version_text = f"V. <b>{record['version']:.1f}</b>"
+            diff_text = ""
+            if i == len(history_records) - 1:
+                diff_text = ""
+            elif record.get('version_diff') is not None:
+                diff_value = float(record['version_diff'])
+                if diff_value > 0:
+                    diff_text = f" (<span class='tg-spoiler'>+{diff_value:.1f}</span>)"
+                elif diff_value < 0:
+                    diff_text = f" (<span class='tg-spoiler'>{diff_value:.1f}</span>)"
+                else:
+                    diff_text = " (<span class='tg-spoiler'>без изменений</span>)"
+
+            response_lines.append(
+                f"  <code>{len(history_records) - i:2}.</code> {version_text}{diff_text} {record['changed_at'].astimezone(local_tz).strftime('%d.%m  %H:%M')}"
+            )
         await message.reply("\n".join(response_lines), parse_mode="HTML", disable_web_page_preview=True)
     except Exception as e:
         logger.error(f"Error in /user_history for target {target_user_id} by {calling_user.id}: {e}", exc_info=True)
-        await message.reply(f"Ошибка при получении истории для {target_user_link}.")
+        await message.reply(f"Ошибка при получении истории для {target_user_link}.", disable_web_page_preview=True)
         await send_telegram_log(bot, f"🔴 Ошибка в /user_history для {target_user_link} (запросил {get_user_mention_html(calling_user.id, calling_user.full_name, calling_user.username)}): <pre>{html.escape(str(e))}</pre>")
 
 
