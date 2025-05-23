@@ -175,9 +175,9 @@ async def _process_robbank_result(
                 if current_s >= s_goal['target_days']: streak_name_for_msg = s_goal['name']
                 else: break
             if streak_name_for_msg:
-                 streak_info_msg_part = f"(Твой текущий стрик: \"<b>{html.escape(streak_name_for_msg)}</b>\" - {current_s} д. не будет прерван, если ты сегодня используешь /oneui)."
+                 streak_info_msg_part = f"(Твой текущий стрик: \"<b>{html.escape(streak_name_for_msg)}</b>\" - {current_s} д. не будет прерван, если ты сегодня используешь /oneui до 21:00)."
             else:
-                 streak_info_msg_part = f"(Твой текущий стрик: {current_s} д. не будет прерван, если ты сегодня используешь /oneui)."
+                 streak_info_msg_part = f"(Твой текущий стрик: {current_s} д. если не использовал /oneui сегодня, то используй все ровно, чтобы не потерять стрик свой и после 21:00, ну вообщем используй /oneui, как будто ареста нету, чтобы стрик не потерять свой.)."
         else:
             streak_info_msg_part = "(Не забудь сегодня использовать /oneui, чтобы не потерять возможный стрик!)"
         
