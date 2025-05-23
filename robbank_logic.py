@@ -175,7 +175,7 @@ async def _process_robbank_result(
                 if current_s >= s_goal['target_days']: streak_name_for_msg = s_goal['name']
                 else: break
             if streak_name_for_msg:
-                 streak_info_msg_part = f"(Твой текущий стрик: \"<b>{html.escape(streak_name_for_msg)}</b>\" - {current_s} д. не будет прерван, если ты сегодня используешь /oneui до 21:00)."
+                 streak_info_msg_part = f"(Твой текущий стрик: \"<b>{html.escape(streak_name_for_msg)}</b>\" - {current_s} д. если не использовал /oneui сегодня, то используй все ровно, чтобы не потерять стрик свой и после 21:00, ну вообщем используй /oneui, как будто ареста нету, чтобы стрик не потерять свой.)."
             else:
                  streak_info_msg_part = f"(Твой текущий стрик: {current_s} д. если не использовал /oneui сегодня, то используй все ровно, чтобы не потерять стрик свой и после 21:00, ну вообщем используй /oneui, как будто ареста нету, чтобы стрик не потерять свой.)."
         else:
@@ -253,7 +253,7 @@ async def handle_robbank_command(message: Message, bot: Bot): # bot: Bot мож�
                     current_day_start_local -= timedelta(days=1)
                 cooldown_ends_local = current_day_start_local + timedelta(days=Config.ROBBANK_COOLDOWN_DAYS)
                 if last_attempt_utc.astimezone(local_tz) > current_day_start_local:
-                    await message.reply(random.choice(ROBBANK_COOLDOWN_PHRASES).format(cooldown_ends_time=cooldown_ends_local.strftime('%d.%m.%Y %H:%M:%S %Z')),
+                    await message.reply(random.choice(ROBBANK_COOLDOWN_PHRASES).format(cooldown_ends_time=cooldown_ends_local.strftime('%d.%m %H:%M')),
                                         disable_web_page_preview=True)
                     return
             
