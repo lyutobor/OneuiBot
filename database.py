@@ -460,6 +460,7 @@ async def init_db():
                 current_streak INTEGER DEFAULT 0 NOT NULL,
                 last_streak_check_date DATE,
                 last_streak_timestamp_utc TIMESTAMP WITH TIME ZONE
+                PRIMARY KEY (user_id, chat_id)
             )
         """)
         logger.info("Таблица 'user_daily_streaks' проверена/создана.")
