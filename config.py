@@ -338,7 +338,7 @@ class Config:
     ROBBANK_GUARANTEED_SUCCESS_BANK_LEVEL_MAX = 18 # Верхняя граница для 100% шанса
 
     ROBBANK_REWARD_BASE_MIN = 100
-    ROBBANK_REWARD_BASE_MAX = 1500
+    ROBBANK_REWARD_BASE_MAX = 1000
     ROBBANK_REWARD_MAX_CHANCE = 0.005  # 0.5% шанс на максимальную награду из диапазона
 
     # Мультипликаторы к награде (значение 1.0 означает отсутствие бонуса)
