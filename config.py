@@ -212,6 +212,7 @@ class Config:
     MARKET_ONEUI_ATTEMPT_PERCENT_OF_BALANCE = 0.30  # 30% от баланса
     MARKET_ROULETTE_SPIN_PERCENT_OF_BALANCE = 0.35  # 35% от баланса
     MARKET_BONUS_ATTEMPT_PERCENT_OF_BALANCE = 0.25  # 25% от баланса
+    MIN_MARKET_DYNAMIC_PRICE = 150
     
     # === Настройки Телефонов и Предметов ===
     MAX_PHONES_PER_USER = 2 # Максимальное количество активных телефонов у пользователя
