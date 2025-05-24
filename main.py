@@ -1110,8 +1110,8 @@ async def oneui_command(message: Message):
                     if current_achieved_goal and new_calculated_streak == current_achieved_goal['target_days']:
                         pb_streak_fill_count = 10
 
-                    pb_streak = fill_char * pb_streak_fill_count + Config.PROGRESS_BAR_EMPTY_CHAR * (10 - pb_streak_fill_count)
-                    response_message_parts.append(f"<b>{name_for_pb}</b>: {new_calculated_streak}/{target_for_pb['target_days']}\n{pb_streak}")
+                    pb_streak = fill_char * pb_streak_fill_count + Config.PROGRESS_BAR_EMPTY_CHAR * (16 - pb_streak_fill_count)
+                    response_message_parts.append(f"<b>{name_for_pb}</b>: \n{new_calculated_streak}/{target_for_pb'target_days'}\n{pb_streak}")
             elif Config.DAILY_STREAKS_CONFIG and new_calculated_streak >= Config.DAILY_STREAKS_CONFIG[-1]['target_days']:
                 response_message_parts.append(f"👑 Вы <b>{html.escape(Config.DAILY_STREAKS_CONFIG[-1]['name'])}</b>! Легендарный стрик: {new_calculated_streak} д.!")
         # --- КОНЕЦ НОВОГО БЛОКА: ОБРАБОТКА ЕЖЕДНЕВНОГО СТРИКА ---
