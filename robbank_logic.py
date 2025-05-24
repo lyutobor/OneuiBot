@@ -175,11 +175,11 @@ async def _process_robbank_result(
                 if current_s >= s_goal['target_days']: streak_name_for_msg = s_goal['name']
                 else: break
             if streak_name_for_msg:
-                 streak_info_msg_part = f"(Твой текущий стрик: \"<b>{html.escape(streak_name_for_msg)}</b>\" - {current_s} д. если не использовал /oneui сегодня, то используй все ровно, чтобы не потерять стрик свой и после 21:00, ну вообщем используй /oneui, как будто ареста нету, чтобы стрик не потерять свой.)."
+                 streak_info_msg_part = f"(Текущий стрик: \"<b>{html.escape(streak_name_for_msg)}</b>\" - {current_s} д. если не использовал /oneui сегодня, то используй все ровно, чтобы не потерять стрик свой и после 21:00, ну вообщем используй /oneui, как будто ареста нету, чтобы стрик не потерять свой.)."
             else:
-                 streak_info_msg_part = f"(Твой текущий стрик: {current_s} д. если не использовал /oneui сегодня, то используй все ровно, чтобы не потерять стрик свой и после 21:00, ну вообщем используй /oneui, как будто ареста нету, чтобы стрик не потерять свой.)."
+                 streak_info_msg_part = f"(Текущий стрик: {current_s} д. если не использовал /oneui сегодня, то используй все ровно, чтобы не потерять стрик свой и после 21:00, ну вообщем используй /oneui, как будто ареста нету, чтобы стрик не потерять свой.)."
         else:
-            streak_info_msg_part = "(Не забудь сегодня использовать /oneui, чтобы не потерять возможный стрик!)"
+            streak_info_msg_part = "(Не забудь использовать /oneui, чтобы не потерять возможный стрик!)"
         
         message_to_send = random.choice(ROBBANK_ARREST_PHRASES).format(
             block_time=block_until_local.strftime('%d.%m %H:%M'),
