@@ -906,14 +906,7 @@ async def cmd_purchase_confirm_yes(message: Message, state: FSMContext, bot: Bot
                     f"📱 Телефон куплен: {user_link} купил <b>{html.escape(phone_name)}</b> ({phone_color}, ключ: {phone_key}) "
                     f"за {phone_price} OC. ID: {new_phone_inventory_id}. Баланс: {new_balance_after_purchase} OC."
                 )
-                await check_and_grant_achievements(
-                    user_id,
-                    original_chat_id_of_action,
-                    bot,
-                    message_thread_id=message.message_thread_id,
-                    phone_bought_just_now=True, # Флаг для достижения "купить первый телефон"
-                    phone_model_key_bought=phone_key # Для достижений по сериям
-                )
+                
                 
                 
                     # --- КОНЕЦ ВЫЗОВА ПРОВЕРКИ ДОСТИЖЕНИЙ ---
