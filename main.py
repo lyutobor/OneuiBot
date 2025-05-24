@@ -1000,6 +1000,11 @@ def get_oneui_version_change() -> float:
         return 0.0
 
 # === /oneui КОМАНДА (с учетом купленных/бонусных попыток) ===
+# main.py
+
+# ... (остальные импорты) ...
+
+# === /oneui КОМАНДА (с учетом купленных/бонусных попыток) ===
 @dp.message(Command(
     "oneui", "ванюай", "уанюай", "обнова", "версия", "обновить", "прошивка",
     "one_ui", "get_version", "my_oneui", "моя_версия_oneui", "ванюи", "оней",
@@ -1112,7 +1117,8 @@ async def oneui_command(message: Message):
 
                     # Используем fill_char для заполненных кубиков
                     pb_streak = fill_char * pb_streak_fill_count + Config.PROGRESS_BAR_EMPTY_CHAR * (10 - pb_streak_fill_count)
-                    response_message_parts.append(f"<b>{name_for_pb}</b>: {new_calculated_streak}/{target_for_pb['target_days']}\n{pb_streak}")
+                    # Изменено: убраны квадратные скобки и добавлен перевод строки
+                    response_message_parts.append(f"<b>{name_for_pb}</b>: {new_calculated_streak}/{target_for_pb['target_days']} дней\n{pb_streak}")
             elif Config.DAILY_STREAKS_CONFIG and new_calculated_streak >= Config.DAILY_STREAKS_CONFIG[-1]['target_days']:
                 response_message_parts.append(f"👑 Вы <b>{html.escape(Config.DAILY_STREAKS_CONFIG[-1]['name'])}</b>! Легендарный стрик: {new_calculated_streak} д.!")
         # --- КОНЕЦ НОВОГО БЛОКА: ОБРАБОТКА ЕЖЕДНЕВНОГО СТРИКА ---
