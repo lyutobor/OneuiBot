@@ -193,6 +193,7 @@ async def init_db():
                                              -- Пока можно оставить NULL или не использовать активно.
                 -- UNIQUE (user_id, item_key) -- УБРАЛИ ЭТО ОГРАНИЧЕНИЕ, чтобы можно было иметь несколько одинаковых чехлов.
                                              -- Для компонентов будем управлять уникальностью через INSERT/UPDATE с проверкой quantity.
+                equipped_phone_id INTEGER DEFAULT NULL                             
             )
         """)
         logger.info("Таблица 'user_items' проверена/создана (без UNIQUE для item_key).")
@@ -3255,6 +3256,63 @@ async def get_user_businesses(user_id: int, chat_id: Optional[int] = None) -> Li
     finally:
         if conn and not conn.is_closed():
             await conn.close()
+            
+async def update_user_item_fields(
+    user_item_id: int,
+    user_id: int,
+    fields_to_update: Dict[str, Any],
+    conn_ext: Optional[asyncpg.Connection] = None
+) -> bool:
+    """
+    Обновляет указанные поля для конкретного предмета пользователя в инвентаре.
+    Используется для обновления поля 'data' или 'equipped_phone_id' для чехлов.
+    """
+    conn = conn_ext if conn_ext else await get_connection()
+    if not fields_to_update:
+        return False
+    
+    set_clauses = []
+    values = []
+    param_idx = 1
+
+    # Разрешенные поля для обновления в таблице user_items
+    allowed_fields = [
+        "quantity", "data", "equipped_phone_id" 
+    ]
+
+    for key, value in fields_to_update.items():
+        if key not in allowed_fields:
+            logger.warning(f"DB: Attempted to update disallowed field '{key}' in user_items for user_item_id {user_item_id}. Skipped.")
+            continue
+        
+        set_clauses.append(f"{key} = ${param_idx}")
+        
+        # Обработка JSONB полей
+        if key == "data" and isinstance(value, dict):
+            values.append(json.dumps(value))
+        elif key == "data" and value is None:
+            values.append(None)
+        else:
+            values.append(value)
+        param_idx += 1
+
+    if not set_clauses:
+        return False # Нет действительных полей для обновления
+
+    values.append(user_item_id) # Для WHERE user_item_id = $N
+    values.append(user_id)      # Для WHERE user_id = $M (проверка безопасности, что предмет принадлежит пользователю)
+    query = f"UPDATE user_items SET {', '.join(set_clauses)} WHERE user_item_id = ${param_idx} AND user_id = ${param_idx + 1}"
+
+    try:
+        result = await conn.execute(query, *values)
+        return result == "UPDATE 1"
+    except Exception as e:
+        logger.error(f"DB: Error updating fields for user_item_id {user_item_id} (user {user_id}): {e}", exc_info=True)
+        return False
+    finally:
+        if not conn_ext and conn and not conn.is_closed():
+            await conn.close()            
+            
 
 async def get_user_business_by_id(business_id: int, user_id: int, conn_ext: Optional[asyncpg.Connection] = None) -> Optional[Dict[str, Any]]:
     """

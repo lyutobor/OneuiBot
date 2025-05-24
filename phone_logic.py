@@ -2247,7 +2247,7 @@ async def cmd_equip_case(message: Message, command: CommandObject, bot: Bot):
             f"Пример: /equipcase ID_телефона ID_чехла_в_инвентаре\n"
             f"ID телефонов: /myphones\n"
             f"ID чехлов: /myitems (смотрите ID конкретного экземпляра)",
-            parse_mode="HTML"
+            parse_mode="HTML", disable_web_page_preview=True
         )
         return
 
@@ -2268,18 +2268,18 @@ async def cmd_equip_case(message: Message, command: CommandObject, bot: Bot):
         conn = await database.get_connection()
         async with conn.transaction(): # Оборачиваем все действия с БД в транзакцию
             # 1. Получаем телефон пользователя
-            phone_db_data = await database.get_phone_by_inventory_id(phone_inventory_id_arg, conn_ext=conn) # Используем conn_ext
+            phone_db_data = await database.get_phone_by_inventory_id(phone_inventory_id_arg, conn_ext=conn)
             if not phone_db_data or phone_db_data['user_id'] != user_id:
                 await message.reply(f"Телефон с ID <code>{phone_inventory_id_arg}</code> не найден в вашем инвентаре.", parse_mode="HTML")
                 return
-            if phone_db_data.get('is_sold', False): # Используем .get
+            if phone_db_data.get('is_sold', False):
                 await message.reply(f"Телефон ID <code>{phone_inventory_id_arg}</code> уже продан.", parse_mode="HTML")
                 return
             if phone_db_data.get('is_broken'):
                 broken_comp_key = phone_db_data.get('broken_component_key')
                 broken_comp_name = "какой-то компонент"
                 if broken_comp_key and broken_comp_key in PHONE_COMPONENTS:
-                    broken_comp_name = PHONE_COMPONENTS[broken_comp_key].get('name', broken_comp_key) # Используем .get
+                    broken_comp_name = PHONE_COMPONENTS[broken_comp_key].get('name', broken_comp_key)
                 await message.reply(f"Телефон ID <code>{phone_inventory_id_arg}</code> сломан ({html.escape(broken_comp_name)}). Сначала почините его, чтобы сменить чехол.", parse_mode="HTML")
                 return
 
@@ -2289,10 +2289,10 @@ async def cmd_equip_case(message: Message, command: CommandObject, bot: Bot):
             if not phone_static_info:
                 await message.reply(f"Ошибка: не найдены данные для модели телефона ID <code>{phone_inventory_id_arg}</code>.", parse_mode="HTML")
                 return
-            phone_series = phone_static_info.get('series') # Безопасно получаем серию
+            phone_series = phone_static_info.get('series')
 
             # 2. Получаем чехол из инвентаря пользователя
-            case_to_equip_db = await database.get_user_item_by_id(user_item_id_of_case_arg, user_id=user_id, conn_ext=conn) # Используем conn_ext
+            case_to_equip_db = await database.get_user_item_by_id(user_item_id_of_case_arg, user_id=user_id, conn_ext=conn)
             if not case_to_equip_db:
                 await message.reply(f"Чехол с ID <code>{user_item_id_of_case_arg}</code> не найден в вашем инвентаре.", parse_mode="HTML")
                 return
@@ -2300,9 +2300,11 @@ async def cmd_equip_case(message: Message, command: CommandObject, bot: Bot):
                 await message.reply(f"Предмет с ID <code>{user_item_id_of_case_arg}</code> не является чехлом.", parse_mode="HTML")
                 return
             # Проверка, что чехол не надет на другой телефон (для уникальных предметов)
+            # В данном случае, в `database.py` для `user_items` чехол может быть привязан к телефону через `equipped_phone_id`
+            # Если чехол уже надет на какой-либо телефон, его `equipped_phone_id` будет не `None`.
             if case_to_equip_db.get('equipped_phone_id') is not None:
-                 await message.reply(f"Чехол ID <code>{user_item_id_of_case_arg}</code> уже надет на другой телефон (ID: {case_to_equip_db['equipped_phone_id']}). Сначала снимите его.", parse_mode="HTML")
-                 return
+                await message.reply(f"Чехол ID <code>{user_item_id_of_case_arg}</code> уже надет на другой телефон (ID: {case_to_equip_db['equipped_phone_id']}). Сначала снимите его.", parse_mode="HTML")
+                return
 
 
             new_case_key = case_to_equip_db['item_key']
@@ -2318,7 +2320,7 @@ async def cmd_equip_case(message: Message, command: CommandObject, bot: Bot):
                 new_case_series_display = new_case_series if new_case_series else "неизвестная"
                 await message.reply(
                     f"Несовместимость! Чехол \"{html.escape(new_case_static_info.get('name', new_case_key))}\" ({new_case_series_display}-серия) "
-                    f"не подходит для телефона \"<b>{html.escape(phone_static_info.get('name', phone_model_key))}</b>\" ({phone_series_display}-серия).", # Добавлен HTML Escape и жирный шрифт
+                    f"не подходит для телефона \"<b>{html.escape(phone_static_info.get('name', phone_model_key))}</b>\" ({phone_series_display}-серия).",
                     parse_mode="HTML"
                 )
                 return
@@ -2326,41 +2328,32 @@ async def cmd_equip_case(message: Message, command: CommandObject, bot: Bot):
             fields_to_update_for_phone: Dict[str, Any] = {}
             old_case_key_on_phone = phone_db_data.get('equipped_case_key')
 
-            # Проверка, не надевают ли тот же самый экземпляр чехла, который уже надет
-            # Это может быть актуально, если user_item_id_of_case_arg совпадает с ID чехла, уже надетого на этот телефон.
-            # Хотя наша логика хранит только ключ чехла на телефоне, а не user_item_id, эта проверка непрямая.
-            # Более прямая проверка была бы, если бы мы хранили user_item_id чехла на телефоне.
-            # Текущая логика: если на телефоне уже есть чехол (old_case_key_on_phone), и он того же ТИПА (new_case_key == old_case_key_on_phone),
-            # то мы считаем, что надевается тот же тип, и, возможно, это уже надетый экземпляр.
-            # Учитывая, что чехлы уникальны в инвентаре (quantity=1), проверка ниже может быть упрощена.
-            if old_case_key_on_phone and old_case_key_on_phone == new_case_key:
-                 old_case_name_display = html.escape(PHONE_CASES.get(old_case_key_on_phone, {}).get('name', old_case_key_on_phone))
-                 await message.reply(f"Чехол типа \"{old_case_name_display}\" уже надет на этот телефон.", parse_mode="HTML")
-                 return
-
-
-            # Если был старый чехол, "возвращаем" его в инвентарь user_items
+            # Если был старый чехол, снимаем его с телефона и обновляем его статус в инвентаре
             if old_case_key_on_phone:
-                old_case_static_data = PHONE_CASES.get(old_case_key_on_phone)
-                # Для возврата в инвентарь не нужен user_item_id, просто добавляем 1 шт по item_key
-                if old_case_static_data:
-                    # Добавляем старый чехол обратно в инвентарь с новым user_item_id
-                    add_old_case_back = await database.add_item_to_user_inventory(
-                        user_id, old_case_key_on_phone, 'case', 1, conn_ext=conn # quantity = 1 для чехлов
+                # Находим конкретный экземпляр старого чехла, который был на этом телефоне
+                old_case_item_on_phone = await database.get_user_item_by_equipped_phone_id(user_id, phone_inventory_id_arg, old_case_key_on_phone, conn_ext=conn)
+                if old_case_item_on_phone:
+                    update_old_case_item_success = await database.update_user_item_fields(
+                        old_case_item_on_phone['user_item_id'], user_id, {'equipped_phone_id': None}, conn_ext=conn
                     )
-                    if not add_old_case_back:
-                        logger.error(f"EquipCase: Не удалось вернуть старый чехол {old_case_key_on_phone} в инвентарь user {user_id} с телефона {phone_inventory_id_arg}")
-                    else:
-                        logger.info(f"User {user_id} old case {old_case_key_on_phone} returned to inventory from phone {phone_inventory_id_arg}.")
+                    if not update_old_case_item_success:
+                        logger.critical(f"CRITICAL: Failed to unequip old case item ID {old_case_item_on_phone['user_item_id']} from phone {phone_inventory_id_arg} for user {user_id}!")
                 else:
-                    logger.warning(f"Статические данные для старого чехла {old_case_key_on_phone} на телефоне {phone_inventory_id_arg} не найдены. Чехол снят с телефона, но не возвращен в инвентарь.")
+                    logger.warning(f"EquipCase: Old equipped case item '{old_case_key_on_phone}' not found in user_items for phone {phone_inventory_id_arg} of user {user_id} when unequipping.")
+
 
             # Надеваем новый чехол на телефон
             fields_to_update_for_phone['equipped_case_key'] = new_case_key
-            # Обновляем поле equipped_phone_id у записи чехла в инвентаре
-            fields_to_update_for_case_item: Dict[str, Any] = {'equipped_phone_id': phone_inventory_id_arg}
+            # Обновляем `equipped_phone_id` поля для нового предмета чехла в `user_items`
+            update_new_case_item_success = await database.update_user_item_fields(
+                user_item_id_of_case_arg, user_id, {'equipped_phone_id': phone_inventory_id_arg}, conn_ext=conn
+            )
+            if not update_new_case_item_success:
+                logger.critical(f"CRITICAL: Failed to update equipped_phone_id for new case item ID {user_item_id_of_case_arg} for user {user_id}!")
+                raise Exception(f"Failed to update equipped_phone_id for new case item ID {user_item_id_of_case_arg} for user {user_id}.")
 
-            # Пересчет времени работы батареи
+
+            # Пересчет времени работы батареи (если она была заряжена)
             last_charged_utc_val = phone_db_data.get('last_charged_utc')
             if last_charged_utc_val and isinstance(last_charged_utc_val, datetime):
                 last_charged_aware = last_charged_utc_val.replace(tzinfo=dt_timezone.utc) if last_charged_utc_val.tzinfo is None else last_charged_utc_val.astimezone(dt_timezone.utc)
@@ -2370,13 +2363,14 @@ async def cmd_equip_case(message: Message, command: CommandObject, bot: Bot):
                 new_total_battery_life_days = base_phone_battery_days + new_case_battery_bonus_days
 
                 new_battery_dead_after = last_charged_aware + timedelta(days=new_total_battery_life_days)
-                new_battery_break_after = new_battery_dead_after + timedelta(days=getattr(Config, "PHONE_CHARGE_WINDOW_DAYS", 2)) # Время до окончательной поломки после полной разрядки
+                new_battery_break_after = new_battery_dead_after + timedelta(days=getattr(Config, "PHONE_CHARGE_WINDOW_DAYS", 2))
 
                 fields_to_update_for_phone['battery_dead_after_utc'] = new_battery_dead_after
                 fields_to_update_for_phone['battery_break_after_utc'] = new_battery_break_after
                 logger.info(f"Phone {phone_inventory_id_arg} battery times updated. New dead: {new_battery_dead_after}, break: {new_battery_break_after}")
             elif last_charged_utc_val is not None:
-                 logger.warning(f"EquipCase: last_charged_utc для phone {phone_inventory_id_arg} не является datetime ({type(last_charged_utc_val)}). Батарея не пересчитана.")
+                logger.warning(f"EquipCase: last_charged_utc для phone {phone_inventory_id_arg} не является datetime ({type(last_charged_utc_val)}). Батарея не пересчитана.")
+
 
             # Обновляем телефон в БД (надеваем чехол, обновляем батарею)
             update_phone_success = await database.update_phone_status_fields(
@@ -2385,24 +2379,14 @@ async def cmd_equip_case(message: Message, command: CommandObject, bot: Bot):
             if not update_phone_success:
                 raise Exception(f"Не удалось обновить данные телефона {phone_inventory_id_arg} при надевании чехла.")
 
-            # Обновляем запись чехла в инвентаре (указываем, что он теперь на телефоне)
-            update_case_item_success = await database.update_user_item_fields(
-                 user_item_id_of_case_arg, user_id, fields_to_update_for_case_item, conn_ext=conn
-            )
-            if not update_case_item_success:
-                 logger.critical(f"КРИТИЧНО: Не удалось обновить equipped_phone_id={phone_inventory_id_arg} для чехла ID {user_item_id_of_case_arg} у user {user_id}!")
-                 # Это не должно прерывать транзакцию, но требует внимания.
-                 pass # Продолжаем, но логируем проблему
-
             await message.reply(
-                f"{user_link}, вы успешно надели чехол \"<b>{html.escape(new_case_static_info.get('name', new_case_key))}\</b>\" " # Используем .get
-                f"на телефон \"<b>{html.escape(phone_static_info.get('name', phone_model_key))}\</b>\" (ID: {phone_inventory_id_arg}).", # Используем .get
+                f"{user_link}, вы успешно надели чехол \"<b>{html.escape(new_case_static_info.get('name', new_case_key))}\</b>\" "
+                f"на телефон \"<b>{html.escape(phone_static_info.get('name', phone_model_key))}\</b>\" (ID: {phone_inventory_id_arg}).",
                 parse_mode="HTML"
             )
-            # Сообщение о возвращении старого чехла, если он был
             if old_case_key_on_phone:
-                 old_case_name_display = html.escape(PHONE_CASES.get(old_case_key_on_phone, {}).get('name', old_case_key_on_phone)) # Используем .get
-                 await message.answer(f"Старый чехол \"{old_case_name_display}\" возвращен в ваш инвентарь (/myitems).", parse_mode="HTML")
+                old_case_name_display = html.escape(PHONE_CASES.get(old_case_key_on_phone, {}).get('name', old_case_key_on_phone))
+                await message.answer(f"Старый чехол \"{old_case_name_display}\" возвращен в ваш инвентарь (/myitems).", parse_mode="HTML")
 
 
             await send_telegram_log(bot,
@@ -2447,18 +2431,18 @@ async def cmd_remove_case(message: Message, command: CommandObject, bot: Bot):
         conn = await database.get_connection()
         async with conn.transaction(): # Оборачиваем все действия с БД в транзакцию
             # 1. Получаем телефон пользователя
-            phone_db_data = await database.get_phone_by_inventory_id(phone_inventory_id_arg, conn_ext=conn) # Используем conn_ext
+            phone_db_data = await database.get_phone_by_inventory_id(phone_inventory_id_arg, conn_ext=conn)
             if not phone_db_data or phone_db_data['user_id'] != user_id:
                 await message.reply(f"Телефон с ID <code>{phone_inventory_id_arg}</code> не найден в вашем инвентаре.", parse_mode="HTML")
                 return
-            if phone_db_data.get('is_sold', False): # Используем .get
+            if phone_db_data.get('is_sold', False):
                 await message.reply(f"Телефон ID <code>{phone_inventory_id_arg}</code> уже продан.", parse_mode="HTML")
                 return
             if phone_db_data.get('is_broken'):
                 broken_comp_key = phone_db_data.get('broken_component_key')
                 broken_comp_name = "какой-то компонент"
                 if broken_comp_key and broken_comp_key in PHONE_COMPONENTS:
-                    broken_comp_name = PHONE_COMPONENTS[broken_comp_key].get('name', broken_comp_key) # Используем .get
+                    broken_comp_name = PHONE_COMPONENTS[broken_comp_key].get('name', broken_comp_key)
                 await message.reply(f"Телефон ID <code>{phone_inventory_id_arg}</code> сломан ({html.escape(broken_comp_name)}). Сначала почините его.", parse_mode="HTML")
                 return
 
@@ -2470,40 +2454,32 @@ async def cmd_remove_case(message: Message, command: CommandObject, bot: Bot):
 
             # Получаем статические данные чехла (из словаря PHONE_CASES)
             old_case_static_info = PHONE_CASES.get(old_case_key_on_phone)
-            removed_case_name_display = html.escape(old_case_static_info.get('name', old_case_key_on_phone)) if old_case_static_info else f"чехол (ключ: {html.escape(old_case_key_on_phone)})" # Используем .get
+            removed_case_name_display = html.escape(old_case_static_info.get('name', old_case_key_on_phone)) if old_case_static_info else f"чехол (ключ: {html.escape(old_case_key_on_phone)})"
 
-            # Возвращаем старый чехол в инвентарь (добавляем 1 шт)
-            # TODO: Найти user_item_id этого чехла в инвентаре (поле equipped_phone_id == phone_inventory_id_arg)
-            # и сбросить equipped_phone_id = NULL
-            # Вместо этого добавляем новый экземпляр в инвентарь с новым user_item_id
-            if old_case_static_info: # Если статические данные чехла найдены
-                # Находим запись чехла в инвентаре по item_key и equipped_phone_id
-                case_item_db_data_to_update = await database.get_user_item_by_equipped_phone_id(user_id, phone_inventory_id_arg, old_case_key_on_phone, conn_ext=conn)
-                if case_item_db_data_to_update:
-                     update_case_item_success = await database.update_user_item_fields(
-                         case_item_db_data_to_update['user_item_id'], user_id, {'equipped_phone_id': None}, conn_ext=conn
-                     )
-                     if not update_case_item_success:
-                         logger.critical(f"КРИТИЧНО: Не удалось сбросить equipped_phone_id=NULL для чехла ID {case_item_db_data_to_update['user_item_id']} у user {user_id}!")
-                         pass # Продолжаем, но логируем проблему
-                     else:
-                         logger.info(f"User {user_id} case item ID {case_item_db_data_to_update['user_item_id']} (key: {old_case_key_on_phone}) equipped_phone_id set to NULL.")
+            # Находим запись чехла в инвентаре по item_key и equipped_phone_id и обновляем его статус
+            # Добавлена новая функция `get_user_item_by_equipped_phone_id`
+            case_item_db_data_to_update = await database.get_user_item_by_equipped_phone_id(user_id, phone_inventory_id_arg, old_case_key_on_phone, conn_ext=conn)
+            if case_item_db_data_to_update:
+                update_case_item_success = await database.update_user_item_fields(
+                    case_item_db_data_to_update['user_item_id'], user_id, {'equipped_phone_id': None}, conn_ext=conn
+                )
+                if not update_case_item_success:
+                    logger.critical(f"КРИТИЧНО: Не удалось сбросить equipped_phone_id=NULL для чехла ID {case_item_db_data_to_update['user_item_id']} у user {user_id}!")
+                    pass # Продолжаем, но логируем проблему
                 else:
-                    # Если запись чехла не найдена по equipped_phone_id, возможно, это ошибка логики или старые данные.
-                    # Логируем и, возможно, добавляем новый экземпляр для восстановления предмета.
-                    logger.warning(f"RemoveCase: Не найдена запись чехла с key={old_case_key_on_phone} и equipped_phone_id={phone_inventory_id_arg} у user {user_id} при снятии. Добавляем новый экземпляр.")
-                    # Добавляем новый экземпляр чехла в инвентарь
-                    add_old_case_back = await database.add_item_to_user_inventory(
-                         user_id, old_case_key_on_phone, 'case', 1, conn_ext=conn # quantity = 1 для чехлов
-                     )
-                    if not add_old_case_back:
-                         logger.critical(f"КРИТИЧНО: Не удалось вернуть снятый чехол {old_case_key_on_phone} в инвентарь user {user_id} с телефона {phone_inventory_id_arg}!")
-                         raise Exception(f"Внутренняя ошибка: Не удалось вернуть чехол в инвентарь. Обратитесь к администратору.")
-                    else:
-                         logger.info(f"User {user_id} new case {old_case_key_on_phone} added to inventory (removed from phone {phone_inventory_id_arg}).")
-
-            else: # Если статические данные чехла не найдены
-                logger.warning(f"RemoveCase: Не найдены статические данные для чехла {old_case_key_on_phone} на телефоне {phone_inventory_id_arg}. Чехол снят с телефона, но не возвращен в инвентарь.")
+                    logger.info(f"User {user_id} case item ID {case_item_db_data_to_update['user_item_id']} (key: {old_case_key_on_phone}) equipped_phone_id set to NULL.")
+            else:
+                # Если запись чехла не найдена по equipped_phone_id, возможно, это ошибка логики или старые данные.
+                # Логируем и, возможно, добавляем новый экземпляр для восстановления предмета.
+                logger.warning(f"RemoveCase: Не найдена запись чехла с key={old_case_key_on_phone} и equipped_phone_id={phone_inventory_id_arg} у user {user_id} при снятии. Добавляем новый экземпляр.")
+                add_old_case_back = await database.add_item_to_user_inventory(
+                    user_id, old_case_key_on_phone, 'case', 1, conn_ext=conn
+                )
+                if not add_old_case_back:
+                    logger.critical(f"КРИТИЧНО: Не удалось вернуть снятый чехол {old_case_key_on_phone} в инвентарь user {user_id} с телефона {phone_inventory_id_arg}!")
+                    raise Exception(f"Внутренняя ошибка: Не удалось вернуть чехол в инвентарь. Обратитесь к администратору.")
+                else:
+                    logger.info(f"User {user_id} new case {old_case_key_on_phone} added to inventory (removed from phone {phone_inventory_id_arg}).")
 
 
             fields_to_update_for_phone: Dict[str, Any] = {'equipped_case_key': None}
@@ -2515,56 +2491,32 @@ async def cmd_remove_case(message: Message, command: CommandObject, bot: Bot):
                 base_phone_battery_days = getattr(Config, "PHONE_BASE_BATTERY_DAYS", 2)
                 charge_window_days = getattr(Config, "PHONE_CHARGE_WINDOW_DAYS", 2)
 
-                # Рассчитываем время разрядки и поломки, как если бы телефон был заряжен сейчас
-                # и не имел чехла. Но это не совсем корректно.
-                # Правильнее: рассчитать, сколько времени прошло с последней зарядки,
-                # отнять это время от "базового" времени работы телефона без чехла,
-                # и добавить к now_utc.
-
                 time_since_last_charge = now_utc.astimezone(dt_timezone.utc) - last_charged_aware.astimezone(dt_timezone.utc)
 
-                # Рассчитываем общее время работы телефона без чехла
                 base_total_battery_life_td = timedelta(days=base_phone_battery_days)
-
-                # Сколько времени работы (относительно базовой жизни) осталось
-                # Изначально (с чехлом) было last_charged_aware + timedelta(days=base + bonus)
-                # Прошло time_since_last_charge
-                # Время разрядки с чехлом = last_charged_aware + timedelta(days=base + bonus)
-                # Время разрядки без чехла = last_charged_aware + timedelta(days=base)
-                # Если сейчас снять чехол, сколько еще он проработает?
-                # Если бы чехла не было, он бы разрядился в last_charged_aware + timedelta(days=base)
-                # Если это время еще в будущем: осталось (last_charged_aware + timedelta(days=base)) - now_utc
-                # Если уже в прошлом: разряжен.
 
                 base_battery_dead_time = last_charged_aware + base_total_battery_life_td
 
                 if now_utc.astimezone(dt_timezone.utc) < base_battery_dead_time.astimezone(dt_timezone.utc):
-                     # Еще не разряжен по базовому расчету
-                     new_battery_dead_after = base_battery_dead_time
+                    new_battery_dead_after = base_battery_dead_time
                 else:
-                     # Уже разряжен по базовому расчету. Устанавливаем время разрядки = now_utc
-                     new_battery_dead_after = now_utc.astimezone(dt_timezone.utc)
-                     # Если телефон уже разряжен, нужно также пересчитать время до окончательной поломки
-                     # Оно отсчитывается от battery_dead_after_utc
-                     # Если старое battery_dead_after_utc было в будущем, а новое (now_utc) в прошлом/сейчас,
-                     # то время до поломки будет отсчитываться от текущего момента.
-                     old_battery_dead_after_utc = phone_db_data.get('battery_dead_after_utc')
-                     old_battery_break_after_utc = phone_db_data.get('battery_break_after_utc')
+                    new_battery_dead_after = now_utc.astimezone(dt_timezone.utc)
+                    old_battery_dead_after_utc = phone_db_data.get('battery_dead_after_utc')
+                    old_battery_break_after_utc = phone_db_data.get('battery_break_after_utc')
 
-                     if old_battery_dead_after_utc and old_battery_break_after_utc:
-                         old_charge_window = old_battery_break_after_utc.astimezone(dt_timezone.utc) - old_battery_dead_after_utc.astimezone(dt_timezone.utc)
-                         new_battery_break_after = new_battery_dead_after + old_charge_window # Сохраняем окно зарядки
-                     else:
-                         # Если старые данные неполны, используем дефолтное окно
-                         new_battery_break_after = new_battery_dead_after + timedelta(days=charge_window_days)
+                    if old_battery_dead_after_utc and old_battery_break_after_utc:
+                        old_charge_window = old_battery_break_after_utc.astimezone(dt_timezone.utc) - old_battery_dead_after_utc.astimezone(dt_timezone.utc)
+                        new_battery_break_after = new_battery_dead_after + old_charge_window
+                    else:
+                        new_battery_break_after = new_battery_dead_after + timedelta(days=charge_window_days)
 
-                     fields_to_update_for_phone['battery_break_after_utc'] = new_battery_break_after
+                    fields_to_update_for_phone['battery_break_after_utc'] = new_battery_break_after
 
 
                 fields_to_update_for_phone['battery_dead_after_utc'] = new_battery_dead_after
                 logger.info(f"Phone {phone_inventory_id_arg} battery times recalculated after case removal. New dead: {new_battery_dead_after}")
             elif last_charged_utc_val is not None:
-                 logger.warning(f"RemoveCase: last_charged_utc для phone {phone_inventory_id_arg} не является datetime ({type(last_charged_utc_val)}). Батарея не пересчитана.")
+                logger.warning(f"RemoveCase: last_charged_utc для phone {phone_inventory_id_arg} не является datetime ({type(last_charged_utc_val)}). Батарея не пересчитана.")
 
 
             # Обновляем телефон в БД (снимаем чехол, обновляем батарею)
@@ -2576,20 +2528,15 @@ async def cmd_remove_case(message: Message, command: CommandObject, bot: Bot):
 
             # !!! ИСПОЛЬЗУЕМ СЛОВАРЬ PHONE_MODELS ДЛЯ ПОИСКА ИМЕНИ ТЕЛЕФОНА !!!
             phone_model_key_on_phone = phone_db_data['phone_model_key']
-            phone_static_info_model = PHONE_MODELS.get(phone_model_key_on_phone) # Изменено имя переменной
-            phone_name_static = phone_static_info_model.get('name', phone_model_key_on_phone) if phone_static_info_model else phone_model_key_on_phone # Используем .get
+            phone_static_info_model = PHONE_MODELS.get(phone_model_key_on_phone)
+            phone_name_static = phone_static_info_model.get('name', phone_model_key_on_phone) if phone_static_info_model else phone_model_key_on_phone
 
 
             await message.reply(
                 f"{user_link}, вы успешно сняли чехол \"<b>{removed_case_name_display}</b>\" "
-                f"с телефона \"<b>{html.escape(phone_name_static)}</b>\" (ID: <code>{phone_inventory_id_arg}</code>).", # Добавлен HTML Escape и жирный шрифт
+                f"с телефона \"<b>{html.escape(phone_name_static)}</b>\" (ID: <code>{phone_inventory_id_arg}</code>).",
                 parse_mode="HTML"
             )
-            # Сообщение о возвращении чехла в инвентарь добавляем только если он был возвращен
-            # Логика возвращения чехла была выше, она либо добавит новую запись, либо обновит существующую.
-            # Если case_item_db_data_to_update был найден, то equipped_phone_id был сброшен.
-            # Если не был найден, но old_case_static_info был, то добавилась новая запись.
-            # В любом случае, чехол теперь доступен в инвентаре.
             await message.answer("Чехол возвращен в ваш инвентарь (/myitems).", parse_mode="HTML")
 
 

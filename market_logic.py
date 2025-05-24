@@ -1,4 +1,3 @@
-# market_logic.py
 import asyncio
 import html
 from datetime import datetime, timedelta, timezone as dt_timezone
@@ -76,26 +75,29 @@ async def cmd_market_show(message: Message, bot: Bot):
         if not Config.MARKET_ITEMS:
             response_lines.append("На данный момент товаров на рынке нет.")
         else:
-            # Определяем минимальную цену из конфига
-            MIN_MARKET_DYNAMIC_PRICE = getattr(Config, "MIN_MARKET_DYNAMIC_PRICE", 1) # Используем getattr с дефолтом
-
             for item_key, item_details in Config.MARKET_ITEMS.items():
+                # >>> НОВЫЙ БЛОК: Динамический расчет цены в зависимости от item_key
                 item_price_display = 0
                 if item_key == "oneui_attempt":
-                    item_price_display = int(max(MIN_MARKET_DYNAMIC_PRICE, balance * Config.MARKET_ONEUI_ATTEMPT_PERCENT_OF_BALANCE)) # Изменено
+                    # Цена = 30% от текущего баланса
+                    item_price_display = int(max(1, balance * Config.MARKET_ONEUI_ATTEMPT_PERCENT_OF_BALANCE))
                 elif item_key == "roulette_spin":
-                    item_price_display = int(max(MIN_MARKET_DYNAMIC_PRICE, balance * Config.MARKET_ROULETTE_SPIN_PERCENT_OF_BALANCE)) # Изменено
+                    # Цена = 35% от текущего баланса
+                    item_price_display = int(max(1, balance * Config.MARKET_ROULETTE_SPIN_PERCENT_OF_BALANCE))
                 elif item_key == "bonus_attempt":
-                    item_price_display = int(max(MIN_MARKET_DYNAMIC_PRICE, balance * Config.MARKET_BONUS_ATTEMPT_PERCENT_OF_BALANCE)) # Изменено
+                    # Цена = 25% от текущего баланса
+                    item_price_display = int(max(1, balance * Config.MARKET_BONUS_ATTEMPT_PERCENT_OF_BALANCE))
                 else:
+                    # Для остальных товаров (если будут), используем старую логику с инфляцией
                     base_price = item_details['price']
                     item_price_display = await get_current_price(base_price, conn_ext=conn_market_prices)
+                # <<< КОНЕЦ НОВОГО БЛОКА
 
                 item_display_string = (
                     f"🔹 <b>{html.escape(item_details['name'])}</b>\n"
                     f"   Цена: <code>{item_price_display}</code> OneCoin(s)\n"
                     f"   Описание: <i>{html.escape(item_details['description'])}</i>\n"
-                    f"   Для покупки: <code>/{Config.MARKET_BUY_COMMAND_ALIASES[0]} {item_key}</code>"
+                    f"   Для покупки: <code>/{Config.MARKET_BUY_COMMAND_ALIASES[0]} {item_key}</code>" # <-- Изменено здесь
                 )
                 response_lines.append(item_display_string)
                 response_lines.append("---")
@@ -146,27 +148,30 @@ async def cmd_market_buy_item(message: Message, command: CommandObject, state: F
         conn_market_buy = await database.get_connection()
         current_balance = await database.get_user_onecoins(user_id, chat_id, conn_ext=conn_market_buy) # Получаем баланс ЗДЕСЬ
 
-        MIN_MARKET_DYNAMIC_PRICE = getattr(Config, "MIN_MARKET_DYNAMIC_PRICE", 1) # Изменено
+        # >>> НОВЫЙ БЛОК: Расчет цены в зависимости от item_key и баланса
         final_total_price_to_charge = 0
-        original_price_display_if_discounted = 0 
+        original_price_display_if_discounted = 0 # Будет использоваться, если применяется скидка, но по умолчанию это будет динамическая цена
         
         if item_key_to_buy == "oneui_attempt":
-            final_total_price_to_charge = int(max(MIN_MARKET_DYNAMIC_PRICE, current_balance * Config.MARKET_ONEUI_ATTEMPT_PERCENT_OF_BALANCE)) # Изменено
-            original_price_display_if_discounted = final_total_price_to_charge
+            final_total_price_to_charge = int(max(1, current_balance * Config.MARKET_ONEUI_ATTEMPT_PERCENT_OF_BALANCE))
+            original_price_display_if_discounted = final_total_price_to_charge # Для динамической цены это и есть "оригинальная" до скидок чехла
         elif item_key_to_buy == "roulette_spin":
-            final_total_price_to_charge = int(max(MIN_MARKET_DYNAMIC_PRICE, current_balance * Config.MARKET_ROULETTE_SPIN_PERCENT_OF_BALANCE)) # Изменено
+            final_total_price_to_charge = int(max(1, current_balance * Config.MARKET_ROULETTE_SPIN_PERCENT_OF_BALANCE))
             original_price_display_if_discounted = final_total_price_to_charge
         elif item_key_to_buy == "bonus_attempt":
-            final_total_price_to_charge = int(max(MIN_MARKET_DYNAMIC_PRICE, current_balance * Config.MARKET_BONUS_ATTEMPT_PERCENT_OF_BALANCE)) # Изменено
+            final_total_price_to_charge = int(max(1, current_balance * Config.MARKET_BONUS_ATTEMPT_PERCENT_OF_BALANCE))
             original_price_display_if_discounted = final_total_price_to_charge
         else:
+            # Для остальных товаров (если будут), используем старую логику с инфляцией
             base_item_price_per_unit = item_details['price']
             actual_item_price_per_unit = await get_current_price(base_item_price_per_unit, conn_ext=conn_market_buy)
-            final_total_price_to_charge = actual_item_price_per_unit
-            original_price_display_if_discounted = final_total_price_to_charge
+            final_total_price_to_charge = actual_item_price_per_unit # Так как quantity_to_buy = 1
+            original_price_display_if_discounted = final_total_price_to_charge # Для товаров с фиксированной ценой, это цена до скидки
+        # <<< КОНЕЦ НОВОГО БЛОКА
 
-        quantity_to_buy = 1
+        quantity_to_buy = 1 # На рынке пока продаем по 1 шт. (для динамических цен это всегда 1)
         
+        # >>> Применение скидки от чехла (если есть) <<<
         applied_discount_percent = 0.0
         
         if user_id:
@@ -183,7 +188,10 @@ async def cmd_market_buy_item(message: Message, command: CommandObject, state: F
                     logger.info(f"MarketBuy: User {user_id} after phone discount, final price to charge: {final_total_price_to_charge}")
             except Exception as e_market_discount:
                 logger.error(f"MarketBuy: Error applying phone discount for user {user_id}: {e_market_discount}", exc_info=True)
+        # >>> Конец применения скидки <<<
         
+        # current_balance уже получен в начале функции
+
         if current_balance < final_total_price_to_charge:
             price_message = f"<code>{final_total_price_to_charge}</code>"
             if applied_discount_percent > 0:
@@ -242,12 +250,13 @@ async def market_purchase_confirm_yes(message: Message, state: FSMContext, bot: 
     state_user_id = user_data_from_state.get('original_user_id')
     item_key = user_data_from_state.get('item_key')
     item_name = user_data_from_state.get('item_name')
+    # Используем final_total_price, сохраненную как item_price_final
     item_price_final = user_data_from_state.get('item_price_final')
     item_db_field = user_data_from_state.get('item_db_field')
     confirmation_initiated_at_iso = user_data_from_state.get('confirmation_initiated_at')
     original_chat_id = user_data_from_state.get('original_chat_id')
-    original_market_price = user_data_from_state.get('original_market_price')
-    applied_discount_percent = user_data_from_state.get('applied_discount_percent')
+    original_market_price = user_data_from_state.get('original_market_price') # Может быть None
+    applied_discount_percent = user_data_from_state.get('applied_discount_percent') # Может быть None
 
 
     if state_user_id != user_id:
@@ -276,6 +285,7 @@ async def market_purchase_confirm_yes(message: Message, state: FSMContext, bot: 
         logger.error(f"Market: ValueError parsing confirmation_initiated_at_iso for user {user_id}. ISO: {confirmation_initiated_at_iso}")
         return
 
+    # Повторная проверка баланса с final_total_price (item_price_final)
     current_balance = await database.get_user_onecoins(user_id, original_chat_id)
     if current_balance < item_price_final:
         await state.clear()
@@ -366,8 +376,9 @@ async def market_purchase_confirm_yes(message: Message, state: FSMContext, bot: 
             market_buy_total_count=1, # Заглушка, нужно будет получать общий счетчик
             market_spend_total_amount=item_price_final # Для "Торговец Забытыми Душами"
         )
+        # --- КОНЕЦ ВЫЗОВА ПРОВЕРКИ ДОСТИЖЕНИЙ ---
 
-    except asyncpg.exceptions.ForeignKeyViolationError as fk_err:
+    except asyncpg.exceptions.ForeignKeyViolationError as fk_err: # Обработка конкретного исключения
         await message.reply(f"{user_link}, не удалось совершить покупку из-за системной ошибки (FKV). "
                             "Убедитесь, что вы хотя бы раз использовали `/oneui` в этом чате. "
                             "Если проблема повторяется, обратитесь к администратору.")
