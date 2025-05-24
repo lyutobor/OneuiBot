@@ -209,6 +209,10 @@ class Config:
     MARKET_PHONE_CONFIRMATION_TIMEOUT_SECONDS = 60 # Таймаут для подтверждения покупки/продажи телефона (и ремонта)
     MARKET_BUY_COMMAND_ALIASES = ["buyitem", "purchase", "купитьтовар", "приобрести"] # Добавил алиасы
     
+    MARKET_ONEUI_ATTEMPT_PERCENT_OF_BALANCE = 0.30  # 30% от баланса
+    MARKET_ROULETTE_SPIN_PERCENT_OF_BALANCE = 0.35  # 35% от баланса
+    MARKET_BONUS_ATTEMPT_PERCENT_OF_BALANCE = 0.25  # 25% от баланса
+    
     # === Настройки Телефонов и Предметов ===
     MAX_PHONES_PER_USER = 2 # Максимальное количество активных телефонов у пользователя
     PHONE_CHARGE_COST = 20 # Стоимость зарядки телефона в OneCoin

@@ -1,4 +1,3 @@
-# market_logic.py
 import asyncio
 import html
 from datetime import datetime, timedelta, timezone as dt_timezone
@@ -76,27 +75,40 @@ async def cmd_market_show(message: Message, bot: Bot):
         if not Config.MARKET_ITEMS:
             response_lines.append("На данный момент товаров на рынке нет.")
         else:
-            for item_key, item_details in Config.MARKET_ITEMS.items(): # Отступ 12 пробелов
-                base_price = item_details['price'] # Отступ 16 пробелов
-                actual_price = await get_current_price(base_price, conn_ext=conn_market_prices) # Отступ 16 пробелов
-                
-                # Формируем строку для одного товара
-                item_display_string = ( # Отступ 16 пробелов
-                    f"🔹 <b>{html.escape(item_details['name'])}</b>\n"
-                    f"   Цена: <code>{actual_price}</code> OneCoin(s)\n"
-                    f"   Описание: <i>{html.escape(item_details['description'])}</i>\n"
-                    f"   Для покупки: `/{Config.MARKET_BUY_COMMAND_ALIASES[0]} {item_key}`"
-                )
-                response_lines.append(item_display_string) # Отступ 16 пробелов
-                response_lines.append("---") # Отступ 16 пробелов
+            for item_key, item_details in Config.MARKET_ITEMS.items():
+                # >>> НОВЫЙ БЛОК: Динамический расчет цены в зависимости от item_key
+                item_price_display = 0
+                if item_key == "oneui_attempt":
+                    # Цена = 30% от текущего баланса
+                    item_price_display = int(max(1, balance * Config.MARKET_ONEUI_ATTEMPT_PERCENT_OF_BALANCE))
+                elif item_key == "roulette_spin":
+                    # Цена = 35% от текущего баланса
+                    item_price_display = int(max(1, balance * Config.MARKET_ROULETTE_SPIN_PERCENT_OF_BALANCE))
+                elif item_key == "bonus_attempt":
+                    # Цена = 25% от текущего баланса
+                    item_price_display = int(max(1, balance * Config.MARKET_BONUS_ATTEMPT_PERCENT_OF_BALANCE))
+                else:
+                    # Для остальных товаров (если будут), используем старую логику с инфляцией
+                    base_price = item_details['price']
+                    item_price_display = await get_current_price(base_price, conn_ext=conn_market_prices)
+                # <<< КОНЕЦ НОВОГО БЛОКА
 
-        await message.reply("\n".join(response_lines), parse_mode="HTML", disable_web_page_preview=True) # Отступ 8 пробелов
-    except Exception as e: # Отступ 4 пробела
+                item_display_string = (
+                    f"🔹 <b>{html.escape(item_details['name'])}</b>\n"
+                    f"   Цена: <code>{item_price_display}</code> OneCoin(s)\n"
+                    f"   Описание: <i>{html.escape(item_details['description'])}</i>\n"
+                    f"   Для покупки: <code>/{Config.MARKET_BUY_COMMAND_ALIASES[0]} {item_key}</code>" # <-- Изменено здесь
+                )
+                response_lines.append(item_display_string)
+                response_lines.append("---")
+
+        await message.reply("\n".join(response_lines), parse_mode="HTML", disable_web_page_preview=True)
+    except Exception as e:
         logger.error(f"Market: Ошибка в cmd_market_show для user {user_id} chat {chat_id}: {e}", exc_info=True)
         await message.reply("Произошла ошибка при отображении товаров рынка.")
         await send_telegram_log(bot, f"🔴 Ошибка в /market для {user_link} (<code>{user_id}@{chat_id}</code>): <pre>{html.escape(str(e))}</pre>")
-    finally: # Отступ 4 пробела
-        if conn_market_prices and not conn_market_prices.is_closed(): # Отступ 8 пробелов
+    finally:
+        if conn_market_prices and not conn_market_prices.is_closed():
             await conn_market_prices.close()
 
 
@@ -130,36 +142,46 @@ async def cmd_market_buy_item(message: Message, command: CommandObject, state: F
         return
 
     item_details = Config.MARKET_ITEMS[item_key_to_buy]
-    base_item_price_per_unit = item_details['price'] # Базовая цена из Config
-
+    
     conn_market_buy = None
     try:
         conn_market_buy = await database.get_connection()
+        current_balance = await database.get_user_onecoins(user_id, chat_id, conn_ext=conn_market_buy) # Получаем баланс ЗДЕСЬ
 
-        # Получаем актуальную цену за единицу с учетом инфляции
-        actual_item_price_per_unit = await get_current_price(base_item_price_per_unit, conn_ext=conn_market_buy)
+        # >>> НОВЫЙ БЛОК: Расчет цены в зависимости от item_key и баланса
+        final_total_price_to_charge = 0
+        original_price_display_if_discounted = 0 # Будет использоваться, если применяется скидка, но по умолчанию это будет динамическая цена
         
-        quantity_to_buy = 1 # На рынке пока продаем по 1 шт.
-        
-        # Цена с инфляцией, но ДО скидки от чехла (если таковая будет)
-        price_with_inflation_before_discount = actual_item_price_per_unit * quantity_to_buy
-        
-        # Итоговая цена к списанию (после всех модификаций)
-        final_total_price_to_charge = price_with_inflation_before_discount
+        if item_key_to_buy == "oneui_attempt":
+            final_total_price_to_charge = int(max(1, current_balance * Config.MARKET_ONEUI_ATTEMPT_PERCENT_OF_BALANCE))
+            original_price_display_if_discounted = final_total_price_to_charge # Для динамической цены это и есть "оригинальная" до скидок чехла
+        elif item_key_to_buy == "roulette_spin":
+            final_total_price_to_charge = int(max(1, current_balance * Config.MARKET_ROULETTE_SPIN_PERCENT_OF_BALANCE))
+            original_price_display_if_discounted = final_total_price_to_charge
+        elif item_key_to_buy == "bonus_attempt":
+            final_total_price_to_charge = int(max(1, current_balance * Config.MARKET_BONUS_ATTEMPT_PERCENT_OF_BALANCE))
+            original_price_display_if_discounted = final_total_price_to_charge
+        else:
+            # Для остальных товаров (если будут), используем старую логику с инфляцией
+            base_item_price_per_unit = item_details['price']
+            actual_item_price_per_unit = await get_current_price(base_item_price_per_unit, conn_ext=conn_market_buy)
+            final_total_price_to_charge = actual_item_price_per_unit # Так как quantity_to_buy = 1
+            original_price_display_if_discounted = final_total_price_to_charge # Для товаров с фиксированной ценой, это цена до скидки
+        # <<< КОНЕЦ НОВОГО БЛОКА
 
+        quantity_to_buy = 1 # На рынке пока продаем по 1 шт. (для динамических цен это всегда 1)
+        
         # >>> Применение скидки от чехла (если есть) <<<
         applied_discount_percent = 0.0
-        # original_price_for_state для лога/сообщения, если была скидка. Это цена ДО скидки, но ПОСЛЕ инфляции.
-        original_price_display_if_discounted = price_with_inflation_before_discount 
         
-        if user_id: 
+        if user_id:
             try:
-                phone_bonuses = await get_active_user_phone_bonuses(user_id) # Функция из phone_logic.py
+                phone_bonuses = await get_active_user_phone_bonuses(user_id)
                 market_discount_p = phone_bonuses.get("market_discount_percent", 0.0)
                 
-                if market_discount_p > 0: 
-                    logger.info(f"MarketBuy: User {user_id} has phone discount {market_discount_p}%. Price before discount (with inflation): {final_total_price_to_charge}")
-                    discount_amount = round(final_total_price_to_charge * (market_discount_p / 100.0))
+                if market_discount_p > 0:
+                    logger.info(f"MarketBuy: User {user_id} has phone discount {market_discount_p}%. Price before discount (dynamic/inflation): {final_total_price_to_charge}")
+                    discount_amount = int(round(final_total_price_to_charge * (market_discount_p / 100.0)))
                     final_total_price_to_charge -= discount_amount
                     if final_total_price_to_charge < 0: final_total_price_to_charge = 0
                     applied_discount_percent = market_discount_p
@@ -168,13 +190,12 @@ async def cmd_market_buy_item(message: Message, command: CommandObject, state: F
                 logger.error(f"MarketBuy: Error applying phone discount for user {user_id}: {e_market_discount}", exc_info=True)
         # >>> Конец применения скидки <<<
         
-        current_balance = await database.get_user_onecoins(user_id, chat_id, conn_ext=conn_market_buy)
+        # current_balance уже получен в начале функции
 
         if current_balance < final_total_price_to_charge:
             price_message = f"<code>{final_total_price_to_charge}</code>"
             if applied_discount_percent > 0:
-                # Показываем цену до скидки, чтобы было понятно, от чего скидка
-                price_message += f" (с учетом скидки {applied_discount_percent:.0f}%; обычная цена с инфл.: {original_price_display_if_discounted})"
+                price_message += f" (с учетом скидки {applied_discount_percent:.0f}%; обычная цена: {original_price_display_if_discounted})"
             
             await message.reply(
                 f"{user_link}, у вас недостаточно средств для покупки товара "
@@ -187,15 +208,14 @@ async def cmd_market_buy_item(message: Message, command: CommandObject, state: F
         state_data_for_fsm = {
             "item_key": item_key_to_buy,
             "item_name": item_details['name'],
-            "item_price_final": final_total_price_to_charge, # Это цена, которую реально спишем
+            "item_price_final": final_total_price_to_charge,
             "item_db_field": item_details['db_field'],
             "confirmation_initiated_at": datetime.now(dt_timezone.utc).isoformat(),
             "original_chat_id": chat_id,
             "original_user_id": user_id
         }
-        # Если была применена скидка, сохраняем цену ДО скидки (но С инфляцией) для информации
         if applied_discount_percent > 0:
-            state_data_for_fsm["original_market_price_before_discount"] = original_price_display_if_discounted 
+            state_data_for_fsm["original_market_price_before_discount"] = original_price_display_if_discounted
             state_data_for_fsm["applied_discount_percent"] = applied_discount_percent
 
         await state.update_data(**state_data_for_fsm)
@@ -213,7 +233,7 @@ async def cmd_market_buy_item(message: Message, command: CommandObject, state: F
 
         await message.reply(confirmation_message_str, parse_mode="HTML")
 
-    except Exception as e_market_buy: # Более общее имя для переменной исключения
+    except Exception as e_market_buy:
         logger.error(f"MarketBuy: Ошибка в cmd_market_buy_item (до FSM) для user {user_id} chat {chat_id}, item {item_key_to_buy}: {e_market_buy}", exc_info=True)
         await message.reply("Произошла ошибка при подготовке к покупке. Попробуйте позже.")
         await send_telegram_log(bot, f"🔴 Ошибка в /{Config.MARKET_BUY_COMMAND_ALIASES[0]} (до FSM) для {user_link}, товар {item_key_to_buy}: <pre>{html.escape(str(e_market_buy))}</pre>")
