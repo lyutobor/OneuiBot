@@ -1093,9 +1093,10 @@ async def oneui_command(message: Message):
                         streak_bonus_version_change += vs; streak_bonus_onecoin_change += oc
                         logger.info(f"User {user_id} achieved streak '{goal['name']}': +{vs:.1f}V, +{oc}C")
                     await check_and_grant_achievements(
-                        user_id, chat_id_current_message, message.bot,
-                        message_thread_id=original_message_thread_id,
-                        current_daily_streak=new_calculated_streak
+                        user_id,
+                        chat_id_current_message, # << ПЕРЕДАЕМ CHAT_ID
+                        bot_instance_for_achievements, # <<< ОШИБКА ЗДЕСЬ
+                        **kwargs_for_achievements
                     )
                     break
         
@@ -1281,7 +1282,7 @@ async def oneui_command(message: Message):
             await check_and_grant_achievements(
                 user_id,
                 chat_id_current_message, # << ПЕРЕДАЕМ CHAT_ID
-                bot_instance_for_achievements,
+                message.bot,
                 **kwargs_for_achievements
             )
 
