@@ -115,7 +115,7 @@ async def cmd_market_show(message: Message, bot: Bot):
 @market_router.message(Command(*Config.MARKET_BUY_COMMAND_ALIASES, ignore_case=True))
 async def cmd_market_buy_item(message: Message, command: CommandObject, state: FSMContext, bot: Bot):
     if not message.from_user:
-        await message.reply("Не удалось определить пользователя.")
+        await message.reply("Не удалось определить пользователя.", disable_web_page_preview=True)
         return
 
     user_id = message.from_user.id
@@ -128,7 +128,8 @@ async def cmd_market_buy_item(message: Message, command: CommandObject, state: F
         await message.reply(
             "Пожалуйста, укажите идентификатор товара, который хотите купить.\n"
             f"Пример: `/{Config.MARKET_BUY_COMMAND_ALIASES[0]} oneui_attempt`\n"
-            f"Список товаров можно посмотреть командой `/{Config.MARKET_COMMAND_ALIASES[0]}`."
+            f"Список товаров можно посмотреть командой `/{Config.MARKET_COMMAND_ALIASES[0]}`.",
+            disable_web_page_preview=True
         )
         return
 
@@ -137,7 +138,8 @@ async def cmd_market_buy_item(message: Message, command: CommandObject, state: F
     if item_key_to_buy not in Config.MARKET_ITEMS:
         await message.reply(
             f"Товар с идентификатором '<code>{html.escape(item_key_to_buy)}</code>' не найден на рынке.\n"
-            f"Используйте команду `/{Config.MARKET_COMMAND_ALIASES[0]}` , чтобы увидеть доступные товары и их идентификаторы."
+            f"Используйте команду `/{Config.MARKET_COMMAND_ALIASES[0]}` , чтобы увидеть доступные товары и их идентификаторы.",
+            disable_web_page_preview=True
         )
         return
 
@@ -146,37 +148,33 @@ async def cmd_market_buy_item(message: Message, command: CommandObject, state: F
     conn_market_buy = None
     try:
         conn_market_buy = await database.get_connection()
-        current_balance = await database.get_user_onecoins(user_id, chat_id, conn_ext=conn_market_buy) # Получаем баланс ЗДЕСЬ
+        current_balance = await database.get_user_onecoins(user_id, chat_id, conn_ext=conn_market_buy)
 
-        # >>> НОВЫЙ БЛОК: Расчет цены в зависимости от item_key и баланса
         final_total_price_to_charge = 0
-        original_price_display_if_discounted = 0 # Будет использоваться, если применяется скидка, но по умолчанию это будет динамическая цена
+        original_price_display_if_discounted = 0 
         
         if item_key_to_buy == "oneui_attempt":
-            final_total_price_to_charge = int(max(Config.MIN_MARKET_DYNAMIC_PRICE, current_balance * Config.MARKET_ONEUI_ATTEMPT_PERCENT_OF_BALANCE)) # <--- ИЗМЕНЕНИЕ ЗДЕСЬ
+            final_total_price_to_charge = int(max(Config.MIN_MARKET_DYNAMIC_PRICE, current_balance * Config.MARKET_ONEUI_ATTEMPT_PERCENT_OF_BALANCE))
             original_price_display_if_discounted = final_total_price_to_charge 
         elif item_key_to_buy == "roulette_spin":
-            final_total_price_to_charge = int(max(Config.MIN_MARKET_DYNAMIC_PRICE, current_balance * Config.MARKET_ROULETTE_SPIN_PERCENT_OF_BALANCE)) # <--- ИЗМЕНЕНИЕ ЗДЕСЬ
+            final_total_price_to_charge = int(max(Config.MIN_MARKET_DYNAMIC_PRICE, current_balance * Config.MARKET_ROULETTE_SPIN_PERCENT_OF_BALANCE))
             original_price_display_if_discounted = final_total_price_to_charge
         elif item_key_to_buy == "bonus_attempt":
-            final_total_price_to_charge = int(max(Config.MIN_MARKET_DYNAMIC_PRICE, current_balance * Config.MARKET_BONUS_ATTEMPT_PERCENT_OF_BALANCE)) # <--- ИЗМЕНЕНИЕ ЗДЕСЬ
+            final_total_price_to_charge = int(max(Config.MIN_MARKET_DYNAMIC_PRICE, current_balance * Config.MARKET_BONUS_ATTEMPT_PERCENT_OF_BALANCE))
             original_price_display_if_discounted = final_total_price_to_charge
         else:
-            # Для остальных товаров (если будут), используем старую логику с инфляцией
             base_item_price_per_unit = item_details['price']
             actual_item_price_per_unit = await get_current_price(base_item_price_per_unit, conn_ext=conn_market_buy)
-            final_total_price_to_charge = actual_item_price_per_unit # Так как quantity_to_buy = 1
-            original_price_display_if_discounted = final_total_price_to_charge # Для товаров с фиксированной ценой, это цена до скидки
-        # <<< КОНЕЦ НОВОГО БЛОКА
-
-        quantity_to_buy = 1 # На рынке пока продаем по 1 шт. (для динамических цен это всегда 1)
+            final_total_price_to_charge = actual_item_price_per_unit
+            original_price_display_if_discounted = final_total_price_to_charge
         
-        # >>> Применение скидки от чехла (если есть) <<<
+        # quantity_to_buy всегда 1 для этих товаров
+        
         applied_discount_percent = 0.0
         
         if user_id:
             try:
-                phone_bonuses = await get_active_user_phone_bonuses(user_id)
+                phone_bonuses = await get_active_user_phone_bonuses(user_id) #
                 market_discount_p = phone_bonuses.get("market_discount_percent", 0.0)
                 
                 if market_discount_p > 0:
@@ -188,10 +186,7 @@ async def cmd_market_buy_item(message: Message, command: CommandObject, state: F
                     logger.info(f"MarketBuy: User {user_id} after phone discount, final price to charge: {final_total_price_to_charge}")
             except Exception as e_market_discount:
                 logger.error(f"MarketBuy: Error applying phone discount for user {user_id}: {e_market_discount}", exc_info=True)
-        # >>> Конец применения скидки <<<
         
-        # current_balance уже получен в начале функции
-
         if current_balance < final_total_price_to_charge:
             price_message = f"<code>{final_total_price_to_charge}</code>"
             if applied_discount_percent > 0:
@@ -199,7 +194,8 @@ async def cmd_market_buy_item(message: Message, command: CommandObject, state: F
             
             await message.reply(
                 f"{user_link}, у вас недостаточно средств для покупки товара "
-                f"\"<b>{html.escape(item_details['name'])}</b>\" (нужно {price_message}, у вас <code>{current_balance}</code> OneCoin(s))."
+                f"\"<b>{html.escape(item_details['name'])}</b>\" (нужно {price_message}, у вас <code>{current_balance}</code> OneCoin(s)).",
+                disable_web_page_preview=True
             )
             if conn_market_buy and not conn_market_buy.is_closed(): await conn_market_buy.close()
             return
@@ -231,11 +227,11 @@ async def cmd_market_buy_item(message: Message, command: CommandObject, state: F
                                      f"Ответьте '<b>{CONFIRMATION_TEXT_YES}</b>' или '<b>{CONFIRMATION_TEXT_NO}</b>' "
                                      f"в течение {Config.MARKET_PURCHASE_CONFIRMATION_TIMEOUT_SECONDS} секунд.")
 
-        await message.reply(confirmation_message_str, parse_mode="HTML")
+        await message.reply(confirmation_message_str, parse_mode="HTML", disable_web_page_preview=True)
 
     except Exception as e_market_buy:
         logger.error(f"MarketBuy: Ошибка в cmd_market_buy_item (до FSM) для user {user_id} chat {chat_id}, item {item_key_to_buy}: {e_market_buy}", exc_info=True)
-        await message.reply("Произошла ошибка при подготовке к покупке. Попробуйте позже.")
+        await message.reply("Произошла ошибка при подготовке к покупке. Попробуйте позже.", disable_web_page_preview=True)
         await send_telegram_log(bot, f"🔴 Ошибка в /{Config.MARKET_BUY_COMMAND_ALIASES[0]} (до FSM) для {user_link}, товар {item_key_to_buy}: <pre>{html.escape(str(e_market_buy))}</pre>")
     finally:
         if conn_market_buy and not conn_market_buy.is_closed():
