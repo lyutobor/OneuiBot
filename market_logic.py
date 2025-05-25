@@ -53,14 +53,14 @@ CONFIRMATION_TEXT_NO = "нет" # Аналогично
 @market_router.message(Command(*Config.MARKET_COMMAND_ALIASES, ignore_case=True))
 async def cmd_market_show(message: Message, bot: Bot):
     if not message.from_user:
-        await message.reply("Не удалось определить пользователя.")
+        await message.reply("Не удалось определить пользователя.", disable_web_page_preview=True)
         return
 
     user_id = message.from_user.id
     chat_id = message.chat.id
     user_link = get_user_mention_html(user_id, message.from_user.full_name, message.from_user.username)
 
-    conn_market_prices = None # Объявляем до try, чтобы было доступно в finally
+    conn_market_prices = None
     try:
         conn_market_prices = await database.get_connection()
         balance = await database.get_user_onecoins(user_id, chat_id, conn_ext=conn_market_prices)
@@ -76,28 +76,26 @@ async def cmd_market_show(message: Message, bot: Bot):
             response_lines.append("На данный момент товаров на рынке нет.")
         else:
             for item_key, item_details in Config.MARKET_ITEMS.items():
-                # >>> НОВЫЙ БЛОК: Динамический расчет цены в зависимости от item_key
                 item_price_display = 0
                 if item_key == "oneui_attempt":
-                    # Цена = 30% от текущего баланса
-                    item_price_display = int(max(1, balance * Config.MARKET_ONEUI_ATTEMPT_PERCENT_OF_BALANCE))
+                    # ИЗМЕНЕНИЕ ЗДЕСЬ: Используем Config.MIN_MARKET_DYNAMIC_PRICE
+                    item_price_display = int(max(Config.MIN_MARKET_DYNAMIC_PRICE, balance * Config.MARKET_ONEUI_ATTEMPT_PERCENT_OF_BALANCE))
                 elif item_key == "roulette_spin":
-                    # Цена = 35% от текущего баланса
-                    item_price_display = int(max(1, balance * Config.MARKET_ROULETTE_SPIN_PERCENT_OF_BALANCE))
+                    # ИЗМЕНЕНИЕ ЗДЕСЬ: Используем Config.MIN_MARKET_DYNAMIC_PRICE
+                    item_price_display = int(max(Config.MIN_MARKET_DYNAMIC_PRICE, balance * Config.MARKET_ROULETTE_SPIN_PERCENT_OF_BALANCE))
                 elif item_key == "bonus_attempt":
-                    # Цена = 25% от текущего баланса
-                    item_price_display = int(max(1, balance * Config.MARKET_BONUS_ATTEMPT_PERCENT_OF_BALANCE))
+                    # ИЗМЕНЕНИЕ ЗДЕСЬ: Используем Config.MIN_MARKET_DYNAMIC_PRICE
+                    item_price_display = int(max(Config.MIN_MARKET_DYNAMIC_PRICE, balance * Config.MARKET_BONUS_ATTEMPT_PERCENT_OF_BALANCE))
                 else:
                     # Для остальных товаров (если будут), используем старую логику с инфляцией
                     base_price = item_details['price']
                     item_price_display = await get_current_price(base_price, conn_ext=conn_market_prices)
-                # <<< КОНЕЦ НОВОГО БЛОКА
-
+                
                 item_display_string = (
                     f"🔹 <b>{html.escape(item_details['name'])}</b>\n"
-                    f"   Цена: <code>{item_price_display}</code> OneCoin(s)\n"
+                    f"   Цена: <code>{item_price_display}</code> OneCoin(s)\n" # disable_web_page_preview=True здесь не нужен
                     f"   Описание: <i>{html.escape(item_details['description'])}</i>\n"
-                    f"   Для покупки: <code>/{Config.MARKET_BUY_COMMAND_ALIASES[0]} {item_key}</code>" # <-- Изменено здесь
+                    f"   Для покупки: <code>/{Config.MARKET_BUY_COMMAND_ALIASES[0]} {item_key}</code>"
                 )
                 response_lines.append(item_display_string)
                 response_lines.append("---")
@@ -105,7 +103,7 @@ async def cmd_market_show(message: Message, bot: Bot):
         await message.reply("\n".join(response_lines), parse_mode="HTML", disable_web_page_preview=True)
     except Exception as e:
         logger.error(f"Market: Ошибка в cmd_market_show для user {user_id} chat {chat_id}: {e}", exc_info=True)
-        await message.reply("Произошла ошибка при отображении товаров рынка.")
+        await message.reply("Произошла ошибка при отображении товаров рынка.", disable_web_page_preview=True)
         await send_telegram_log(bot, f"🔴 Ошибка в /market для {user_link} (<code>{user_id}@{chat_id}</code>): <pre>{html.escape(str(e))}</pre>")
     finally:
         if conn_market_prices and not conn_market_prices.is_closed():
