@@ -1555,7 +1555,7 @@ async def my_history_command(message: Message, bot: Bot):
                 elif diff_value < 0:
                     diff_text = f" (<span class='tg-spoiler'>{diff_value:.1f}</span>)"
                 else:
-                    diff_text = " (<span class='tg-spoiler'>без изменений</span>)"
+                    diff_text = " (<span class='tg-spoiler'>0.0</span>)"
 
             response_lines.append(
                 f"  <code>{len(history_records) - i:2}.</code> {version_text}{diff_text} {record['changed_at'].astimezone(local_tz).strftime('%d.%m  %H:%M')}"
