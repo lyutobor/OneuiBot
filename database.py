@@ -186,14 +186,11 @@ async def init_db():
             CREATE TABLE IF NOT EXISTS user_items (
                 user_item_id SERIAL PRIMARY KEY,
                 user_id BIGINT NOT NULL,
-                item_key TEXT NOT NULL,      -- Ключ из PHONE_COMPONENTS или PHONE_CASES
-                item_type TEXT NOT NULL,     -- 'component', 'case', 'memory_module'
-                quantity INTEGER DEFAULT 1 NOT NULL, -- Для компонентов и модулей памяти. Для чехлов всегда 1.
-                data JSONB DEFAULT NULL      -- Дополнительные данные, если понадобятся для уникальных экземпляров (например, ID телефона, к которому привязан чехол, если решим так)
-                                             -- Пока можно оставить NULL или не использовать активно.
-                -- UNIQUE (user_id, item_key) -- УБРАЛИ ЭТО ОГРАНИЧЕНИЕ, чтобы можно было иметь несколько одинаковых чехлов.
-                                             -- Для компонентов будем управлять уникальностью через INSERT/UPDATE с проверкой quantity.
-                equipped_phone_id INTEGER DEFAULT NULL                             
+                item_key TEXT NOT NULL,
+                item_type TEXT NOT NULL,
+                quantity INTEGER DEFAULT 1 NOT NULL,
+                data JSONB DEFAULT NULL, -- <<< ИСПРАВЛЕНИЕ: ДОБАВЛЕНА ЗАПЯТАЯ
+                equipped_phone_id INTEGER DEFAULT NULL
             )
         """)
         logger.info("Таблица 'user_items' проверена/создана (без UNIQUE для item_key).")
