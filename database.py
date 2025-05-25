@@ -1929,49 +1929,45 @@ async def get_user_max_version_global(user_id: int) -> float:
         
 async def get_global_top_onecoins(limit: int = 10, conn_ext: Optional[asyncpg.Connection] = None) -> List[Dict[str, Any]]:
     """
-    Получает глобальный топ пользователей по суммарному балансу OneCoin во всех чатах.
+    Получает глобальный топ пользователей по их максимальному балансу OneCoin в одном из чатов.
+    Для каждого пользователя выбирается чат с наибольшим количеством OneCoin.
     """
     conn = conn_ext if conn_ext else await get_connection()
     try:
         query = """
-            WITH UserTotalOnecoins AS (
-                SELECT 
-                    user_id, 
-                    SUM(onecoins) as total_user_onecoins
-                FROM user_oneui
-                WHERE onecoins > 0
-                GROUP BY user_id
-            ),
-            RankedUserChatInfo AS (
+            WITH RankedUserMaxCoinsInOneChat AS (
                 SELECT
                     user_id,
                     full_name,
                     username,
-                    chat_id, 
+                    chat_id,
                     chat_title,
                     telegram_chat_link,
+                    onecoins, -- Это будет максимальный onecoins в одном чате для этого user_id
                     last_used,
-                    ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY last_used DESC NULLS LAST) as rn
+                    -- Ранжируем чаты пользователя по количеству onecoins (по убыванию),
+                    -- а затем по last_used, чтобы при равных onecoins выбрать более свежий
+                    ROW_NUMBER() OVER (PARTITION BY user_id ORDER BY onecoins DESC, last_used DESC NULLS LAST) as rn_max_coins_chat
                 FROM user_oneui
+                WHERE onecoins > 0 -- Учитываем только положительные балансы
             )
             SELECT
-                utc.user_id,
-                ruci.full_name,
-                ruci.username,
-                utc.total_user_onecoins as onecoins,
-                ruci.chat_id, 
-                ruci.chat_title,
-                ruci.telegram_chat_link
-            FROM UserTotalOnecoins utc
-            JOIN RankedUserChatInfo ruci ON utc.user_id = ruci.user_id AND ruci.rn = 1
-            WHERE utc.total_user_onecoins > 0
-            ORDER BY utc.total_user_onecoins DESC, utc.user_id ASC
+                user_id,
+                full_name,
+                username,
+                onecoins, -- Это и будет максимальный баланс в одном из чатов
+                chat_id,
+                chat_title,
+                telegram_chat_link
+            FROM RankedUserMaxCoinsInOneChat
+            WHERE rn_max_coins_chat = 1 -- Выбираем для каждого пользователя только чат с максимальным балансом
+            ORDER BY onecoins DESC, user_id ASC -- Сортируем по этому максимальному балансу
             LIMIT $1;
         """
         rows = await conn.fetch(query, limit)
         return [dict(r) for r in rows]
     except Exception as e:
-        logger.error(f"DB: Error in get_global_top_onecoins: {e}", exc_info=True)
+        logger.error(f"DB: Error in get_global_top_onecoins (max in one chat): {e}", exc_info=True)
         return []
     finally:
         if not conn_ext and conn and not conn.is_closed():
