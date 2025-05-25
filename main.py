@@ -1279,10 +1279,48 @@ async def oneui_command(message: Message):
                     user_tg_username, full_name, chat_title_for_db
                 )
             
+
+            # --- НАЧАЛО БЛОКА: Подготовка аргументов для достижений ---
+            kwargs_for_achievements = {
+                "current_oneui_version": new_version_final_rounded, # Новая версия после всех изменений
+                "current_daily_streak": new_calculated_streak # Актуальный стрик
+            }
+
+            # Если бонус-множитель был применен в этой команде
+            # user_bonus_mult_status должен быть получен ранее в коде
+            # bonus_multiplier_value должен быть уже рассчитан с учетом буста от рулетки, если был
+            if user_bonus_mult_status and user_bonus_mult_status.get('current_bonus_multiplier') is not None and \
+               not user_bonus_mult_status.get('is_bonus_consumed', True): # Проверяем, что is_bonus_consumed был False
+
+                kwargs_for_achievements["bonus_multiplier_value"] = bonus_multiplier_value 
+                if bonus_multiplier_value == 0.0:
+                    kwargs_for_achievements["bonus_multiplier_zero_applied"] = True
+                # Дополнительно, если есть достижения для очень негативного множителя, примененного к OneUI:
+                # if bonus_multiplier_value <= -1.0: # Пример из bonus_logic.py
+                #     kwargs_for_achievements["bonus_multiplier_very_negative_applied_to_oneui"] = True # Назовите ключ как в achievements_logic
+
+
+            # Добавляем информацию о количестве оставшихся доп. попыток /oneui
+            # roulette_status_current должен быть получен ранее
+            if roulette_status_current:
+                # available_extra_oneui_attempts - это количество до использования попытки в этой команде
+                # new_extra_attempts_count - это количество после использования попытки в этой команде
+                # achievements_logic ожидает 'oneui_extra_attempts_current_count' - текущее количество после всех действий
+                current_extra_attempts_for_ach = 0
+                if used_extra_attempt_this_time: # эта переменная должна быть определена ранее в коде oneui_command
+                    current_extra_attempts_for_ach = new_extra_attempts_count # new_extra_attempts_count должен быть определен ранее
+                else:
+                    current_extra_attempts_for_ach = available_extra_oneui_attempts # available_extra_oneui_attempts должен быть определен ранее
+
+                kwargs_for_achievements["oneui_extra_attempts_current_count"] = current_extra_attempts_for_ach
+            # --- КОНЕЦ БЛОКА: Подготовка аргументов для достижений ---
+            
+            
             await check_and_grant_achievements(
                 user_id,
-                chat_id_current_message, # << ПЕРЕДАЕМ CHAT_ID
-                message.bot,
+                chat_id_current_message,
+                message.bot, # ИСПОЛЬЗУЕМ message.bot
+                message_thread_id=original_message_thread_id, # Передаем ID темы
                 **kwargs_for_achievements
             )
 
