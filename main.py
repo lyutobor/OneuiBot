@@ -1162,7 +1162,7 @@ async def oneui_command(message: Message):
                 if on_cooldown_status and next_reset_time_utc:
                     # Пользователь на обычном кулдауне
                     next_reset_local = next_reset_time_utc.astimezone(local_tz)
-                    chosen_cooldown_template = random.choice()
+                    chosen_cooldown_template = random.choice(ONEUI_COOLDOWN_RESPONSES)
                     cooldown_message = chosen_cooldown_template.format(time=next_reset_local.strftime('%H:%M'), zone=local_tz.zone)
                     
                     # Сначала добавляем сообщение о кулдауне
