@@ -1141,7 +1141,7 @@ async def oneui_command(message: Message):
             if robbank_status_for_oneui and robbank_status_for_oneui.get('robbank_oneui_blocked_until_utc'):
                 blocked_until_utc = robbank_status_for_oneui['robbank_oneui_blocked_until_utc']
                 if current_utc_time_for_command < blocked_until_utc:
-                    blocked_until_local_str = blocked_until_utc.astimezone(local_tz).strftime('%d.%m.%Y %H:%M:%S %Z')
+                    blocked_until_local_str = blocked_until_utc.astimezone(local_tz).strftime('%d.%m %H:%M мск')
                     
                     block_msg = random.choice(ONEUI_BLOCKED_PHRASES).format(
                         block_time=blocked_until_local_str,
