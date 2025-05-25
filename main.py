@@ -105,13 +105,19 @@ locks_dict_creation_lock = asyncio.Lock()
 
 # Вероятности для /oneui
 try:
-    from responses import POSITIVE_RESPONSES, NEGATIVE_RESPONSES, POS_MICRO_CHANGES, NEG_MICRO_CHANGES, ONEUI_COOLDOWN_RESPONSES, ONEUI_STREAK_INFO_DURING_COOLDOWN, ONEUI_STREAK_INFO_DURING_COOLDOWN
+    from responses import POSITIVE_RESPONSES, NEGATIVE_RESPONSES, POS_MICRO_CHANGES, NEG_MICRO_CHANGES, ONEUI_COOLDOWN_RESPONSES, ONEUI_STREAK_INFO_DURING_COOLDOWN
 except ImportError:
     POSITIVE_RESPONSES = ["Отличные новости! Твоя версия OneUI увеличилась на %.1f!", "Поздравляю, обновление на %.1f установлено!"]
     NEGATIVE_RESPONSES = ["О нет! Произошел откат версии OneUI на %.1f.", "Кажется, что-то пошло не так. Версия уменьшилась на %.1f."]
-    ONEUI_STREAK_INFO_DURING_COOLDOWN = ["🔥 Твой текущий стрик: <b>{streak_days}</b> д. (он не сбросится, если вернешься вовремя)."] # <-- Вот эта строка
-    #POS_MICRO_CHANGES: List[float] = [0.1, 0.2, 0.3, 0.4, 0.5]
-    #NEG_MICRO_CHANGES: List[float] = [-0.1, -0.2, -0.3, -0.4, -0.5]
+    # Вот здесь проблема:
+    # Изначально было: ONEUI_STREAK_INFO_DURING_COOLDOWN = ["🔥 Твой текущий стрик: <b>{streak_days}</b> д. (он не сбросится, если вернешься вовремя)."]
+    # А должно быть для ONEUI_COOLDOWN_RESPONSES:
+    ONEUI_COOLDOWN_RESPONSES = ["Попытка будет после {time} мск!"] # Или другое короткое дефолтное значение
+    ONEUI_STREAK_INFO_DURING_COOLDOWN = ["🔥 Твой текущий стрик: <b>{streak_days}</b> д. (он не сбросится, если вернешься вовремя)."]
+    # И еще поправьте POS_MICRO_CHANGES и NEG_MICRO_CHANGES, чтобы они брались из responses.py, если вы хотите.
+    # Если вы хотите, чтобы они брались из responses.py, удалите строки с их переопределением ниже.
+    # POS_MICRO_CHANGES = [0.1, 0.2, 0.3, 0.4, 0.5] # Если вы хотите, чтобы они брались из responses.py, удалите это
+    # NEG_MICRO_CHANGES = [-0.1, -0.2, -0.3, -0.4, -0.5] # И это
     logging.warning("Файл responses.py не найден или не содержит нужные константы, используются значения по умолчанию.")
 
 
@@ -1161,7 +1167,7 @@ async def oneui_command(message: Message):
                 if on_cooldown_status and next_reset_time_utc:
                     # Пользователь на обычном кулдауне
                     next_reset_local = next_reset_time_utc.astimezone(local_tz)
-                    chosen_cooldown_template = random.choice(ONEUI_COOLDOWN_RESPONSES)
+                    chosen_cooldown_template = random.choice()
                     cooldown_message = chosen_cooldown_template.format(time=next_reset_local.strftime('%H:%M'), zone=local_tz.zone)
                     
                     # Сначала добавляем сообщение о кулдауне
