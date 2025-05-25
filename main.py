@@ -1051,7 +1051,7 @@ async def oneui_command(message: Message):
         # Сообщения о стрике будут добавлены в response_message_parts В КОНЦЕ, после сообщения о кулдауне (если он есть)
         # или основного сообщения OneUI.
         new_calculated_streak = 0
-        user_streak_data = await database.get_user_daily_streak(user_id)
+        user_streak_data = await database.get_user_daily_streak(user_id, chat_id_current_message)
         current_streak_in_db = user_streak_data.get('current_streak', 0) if user_streak_data else 0
         last_streak_check_date_in_db = user_streak_data.get('last_streak_check_date') if user_streak_data else None
         
@@ -1072,12 +1072,17 @@ async def oneui_command(message: Message):
                     streak_bonus_version_change += comp_v; streak_bonus_onecoin_change += comp_c
                     logger.info(f"User {user_id} streak broken ({current_streak_in_db} days). Compensation: +{comp_v:.1f}V, +{comp_c}C.")
             new_calculated_streak = 1
-            await database.update_user_daily_streak(user_id, new_calculated_streak, current_local_date_for_streak, current_utc_time_for_command)
-            logger.info(f"User {user_id} streak reset/started. New calculated streak: 1 on {current_local_date_for_streak}")
+            await database.update_user_daily_streak(
+                user_id, chat_id_current_message, new_streak_value_to_set, current_local_date_for_streak,
+                current_utc_time_for_command, username, full_name, chat_title_current_message
+            )
         elif last_streak_check_date_in_db == (current_local_date_for_streak - timedelta(days=1)):
             new_calculated_streak = current_streak_in_db + 1
-            await database.update_user_daily_streak(user_id, new_calculated_streak, current_local_date_for_streak, current_utc_time_for_command)
-            logger.info(f"User {user_id} continued streak. Old DB: {current_streak_in_db}, New calculated: {new_calculated_streak} on {current_local_date_for_streak}")
+            await database.update_user_daily_streak(
+                user_id, chat_id_current_message, new_streak_value_to_set, current_local_date_for_streak,
+                current_utc_time_for_command, username, full_name, chat_title_current_message
+            )
+            new_calculated_streak_for_achievements = new_streak_value_to_set
         
         if new_calculated_streak > 0:
             for goal in Config.DAILY_STREAKS_CONFIG:
@@ -1274,9 +1279,10 @@ async def oneui_command(message: Message):
                 )
             
             await check_and_grant_achievements(
-                user_id, chat_id_current_message, message.bot,
-                message_thread_id=original_message_thread_id,
-                current_oneui_version=new_version_final_rounded
+                user_id,
+                chat_id_current_message, # << ПЕРЕДАЕМ CHAT_ID
+                bot_instance_for_achievements,
+                **kwargs_for_achievements
             )
 
             logger.info(f"Version for {user_id} in {chat_id_current_message} updated: {current_db_version:.1f} -> {new_version_final_rounded:.1f}. "
