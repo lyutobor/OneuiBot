@@ -89,7 +89,7 @@ async def _get_formatted_stats(target_user_id: int, target_chat_id: int, bot_ins
     response_lines.append(f"©️ OneCoin (этот чат): {onecoins_chat:}")
 
     # 4. Текущий стрик
-    streak_data = await database.get_user_daily_streak(target_user_id)
+    streak_data = await database.get_user_daily_streak(target_user_id, target_chat_id)
     current_streak = 0
     if streak_data:
         today_local_date = datetime.now(pytz_timezone(Config.TIMEZONE)).date()
