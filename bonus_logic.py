@@ -186,7 +186,8 @@ async def cmd_my_streak(message: Message, bot: Bot):
 
     try:
         # Теперь chat_id определен и может быть использован здесь
-        streak_data = await database.get_user_daily_streak(user_id, chat_id) 
+        chat_id = message.chat.id # chat_id уже должен быть определен в этой функции
+        streak_data = await database.get_user_daily_streak(user_id, chat_id)  
         current_streak = 0
         if streak_data and streak_data.get('last_streak_check_date'):
             today_local_date = datetime.now(pytz_timezone(Config.TIMEZONE)).date()
