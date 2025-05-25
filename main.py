@@ -1074,13 +1074,13 @@ async def oneui_command(message: Message):
             new_calculated_streak = 1
             await database.update_user_daily_streak(
                 user_id, chat_id_current_message, new_calculated_streak, current_local_date_for_streak,
-                current_utc_time_for_command, username, full_name, chat_title_current_message
+                current_utc_time_for_command, user_tg_username, full_name, chat_title_for_db
             )
         elif last_streak_check_date_in_db == (current_local_date_for_streak - timedelta(days=1)):
             new_calculated_streak = current_streak_in_db + 1
             await database.update_user_daily_streak(
                 user_id, chat_id_current_message, new_calculated_streak, current_local_date_for_streak,
-                current_utc_time_for_command, username, full_name, chat_title_current_message
+                current_utc_time_for_command, user_tg_username, full_name, chat_title_for_db
             )
             new_calculated_streak_for_achievements = new_calculated_streak
         
