@@ -456,13 +456,19 @@ async def init_db():
 
         await conn.execute("""
             CREATE TABLE IF NOT EXISTS user_daily_streaks (
-                user_id BIGINT PRIMARY KEY,
+                user_id BIGINT NOT NULL,
+                chat_id BIGINT NOT NULL, -- << НОВОЕ ПОЛЕ
                 current_streak INTEGER DEFAULT 0 NOT NULL,
                 last_streak_check_date DATE,
-                last_streak_timestamp_utc TIMESTAMP WITH TIME ZONE
-            )
+                last_streak_timestamp_utc TIMESTAMP WITH TIME ZONE,
+                username_at_last_check TEXT,
+                full_name_at_last_check TEXT,
+                chat_title_at_last_check TEXT,
+                PRIMARY KEY (user_id, chat_id) -- << ИЗМЕНЕННЫЙ КЛЮЧ
+            );
         """)
-        logger.info("Таблица 'user_daily_streaks' проверена/создана.")
+        logger.info("Таблица 'user_daily_streaks' проверена/создана (с chat_id и составным ключом).")
+        await conn.execute("CREATE INDEX IF NOT EXISTS idx_user_daily_streaks_last_date ON user_daily_streaks (last_streak_check_date);")
 
         # === ТАБЛИЦА ДЛЯ РУЛЕТКИ (ROULETTE_STATUS) ===
         # ИЗМЕНЕНО: Добавлено поле extra_roulette_spins
@@ -2267,43 +2273,50 @@ async def update_user_bonus_multiplier_status(user_id: int, chat_id: int, multip
     finally:
         if not conn_ext and conn_to_use and not conn_to_use.is_closed(): await conn_to_use.close()
 
-async def get_user_daily_streak(user_id: int, conn_ext: Optional[asyncpg.Connection] = None) -> Optional[Dict[str, Any]]:
-    conn_to_use = conn_ext if conn_ext else await get_connection()
+async def get_user_daily_streak(user_id: int, chat_id: int) -> Optional[Dict[str, Any]]:
+    conn = await get_connection()
     try:
-        row = await conn_to_use.fetchrow(
-            "SELECT current_streak, last_streak_check_date, last_streak_timestamp_utc "
-            "FROM user_daily_streaks WHERE user_id = $1", user_id
+        row = await conn.fetchrow(
+            "SELECT current_streak, last_streak_check_date, last_streak_timestamp_utc FROM user_daily_streaks WHERE user_id = $1 AND chat_id = $2",
+            user_id, chat_id
         )
-        if row:
-            data = dict(row)
-            if data.get('last_streak_timestamp_utc') and isinstance(data['last_streak_timestamp_utc'], datetime):
-                ts = data['last_streak_timestamp_utc']
-                data['last_streak_timestamp_utc'] = ts.replace(tzinfo=dt_timezone.utc) if ts.tzinfo is None else ts.astimezone(dt_timezone.utc)
-            return data
-        return None
+        return dict(row) if row else None
     except Exception as e:
-        logger.error(f"DB: Ошибка получения данных о стрике для user {user_id}: {e}", exc_info=True)
+        logger.error(f"Ошибка при получении ежедневного стрика для user_id {user_id}, chat_id {chat_id}: {e}", exc_info=True)
         return None
     finally:
-        if not conn_ext and conn_to_use and not conn_to_use.is_closed(): await conn_to_use.close()
+        await conn.close()
 
-async def update_user_daily_streak(user_id: int, current_streak: int, last_streak_check_date: DDate,
-                                 last_streak_timestamp_utc: datetime, conn_ext: Optional[asyncpg.Connection] = None):
-    conn_to_use = conn_ext if conn_ext else await get_connection()
+async def update_user_daily_streak(
+    user_id: int,
+    chat_id: int,
+    streak: int,
+    check_date: DDate,
+    timestamp_utc: datetime,
+    username: Optional[str] = None,
+    full_name: Optional[str] = None,
+    chat_title: Optional[str] = None
+) -> None:
+    conn = await get_connection()
     try:
-        ts_utc_to_save = last_streak_timestamp_utc.astimezone(dt_timezone.utc) if last_streak_timestamp_utc.tzinfo else last_streak_timestamp_utc.replace(tzinfo=dt_timezone.utc)
-        await conn_to_use.execute(
-            "INSERT INTO user_daily_streaks (user_id, current_streak, last_streak_check_date, last_streak_timestamp_utc) "
-            "VALUES ($1, $2, $3, $4) ON CONFLICT (user_id) DO UPDATE SET "
-            "current_streak = EXCLUDED.current_streak, "
-            "last_streak_check_date = EXCLUDED.last_streak_check_date, "
-            "last_streak_timestamp_utc = EXCLUDED.last_streak_timestamp_utc",
-            user_id, current_streak, last_streak_check_date, ts_utc_to_save
+        await conn.execute(
+            """
+            INSERT INTO user_daily_streaks (user_id, chat_id, current_streak, last_streak_check_date, last_streak_timestamp_utc, username_at_last_check, full_name_at_last_check, chat_title_at_last_check)
+            VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+            ON CONFLICT (user_id, chat_id) DO UPDATE SET
+                current_streak = EXCLUDED.current_streak,
+                last_streak_check_date = EXCLUDED.last_streak_check_date,
+                last_streak_timestamp_utc = EXCLUDED.last_streak_timestamp_utc,
+                username_at_last_check = EXCLUDED.username_at_last_check,
+                full_name_at_last_check = EXCLUDED.full_name_at_last_check,
+                chat_title_at_last_check = EXCLUDED.chat_title_at_last_check;
+            """,
+            user_id, chat_id, streak, check_date, timestamp_utc, username, full_name, chat_title
         )
     except Exception as e:
-        logger.error(f"DB: Ошибка обновления данных о стрике для user {user_id}: {e}", exc_info=True)
+        logger.error(f"Ошибка при обновлении ежедневного стрика для user_id {user_id}, chat_id {chat_id}: {e}", exc_info=True)
     finally:
-        if not conn_ext and conn_to_use and not conn_to_use.is_closed(): await conn_to_use.close()
+        await conn.close()
 
 async def get_roulette_status(user_id: int, chat_id: int, conn_ext: Optional[asyncpg.Connection] = None) -> Optional[Dict[str, Any]]:
     conn_to_use = conn_ext if conn_ext else await get_connection()
