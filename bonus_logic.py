@@ -184,7 +184,7 @@ async def cmd_my_streak(message: Message, bot: Bot):
     user_link = get_user_mention_html(user_id, message.from_user.full_name, message.from_user.username)
 
     try:
-        streak_data = await database.get_user_daily_streak(user_id)
+        streak_data = await database.get_user_daily_streak(user_id, chat_id)
         current_streak = 0
         if streak_data and streak_data.get('last_streak_check_date'):
             today_local_date = datetime.now(pytz_timezone(Config.TIMEZONE)).date()
@@ -225,9 +225,9 @@ async def cmd_my_streak(message: Message, bot: Bot):
         # --- ВЫЗОВ ПРОВЕРКИ ДОСТИЖЕНИЙ ---
         await check_and_grant_achievements(
             user_id,
-            message.chat.id,
+            chat_id, # << ПЕРЕДАЕМ CHAT_ID
             bot,
-            current_daily_streak=current_streak # Передаем текущий стрик
+            current_daily_streak=current_streak # Передаем актуальный стрик для этого чата
         )
         # --- КОНЕЦ ВЫЗОВА ПРОВЕРКИ ДОСТИЖЕНИЙ --
         
