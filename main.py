@@ -1018,7 +1018,14 @@ async def oneui_command(message: Message):
 
     current_utc_time_for_command = datetime.now(dt_timezone.utc)
     local_tz = pytz_timezone(Config.TIMEZONE)
-    current_local_date_for_streak = current_utc_time_for_command.astimezone(local_tz).date()
+    # Определяем "эффективную дату" для стрика на основе RESET_HOUR
+    current_local_time_for_streak_check = current_utc_time_for_command.astimezone(local_tz)
+    if current_local_time_for_streak_check.hour < Config.RESET_HOUR:
+    # Если текущий час ДО часа сброса, то для стрика это все еще "предыдущий" день
+        current_local_date_for_streak = (current_local_time_for_streak_check - timedelta(days=1)).date()
+    else:
+    # Если текущий час ПОСЛЕ или РАВЕН часу сброса, то для стрика это "сегодняшний" день
+        current_local_date_for_streak = current_local_time_for_streak_check.date()
 
     chat_title_for_db: Optional[str] = None
     telegram_chat_public_link: Optional[str] = None
