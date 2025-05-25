@@ -174,7 +174,7 @@ async def cmd_get_bonus_multiplier(message: Message, bot: Bot):
         await send_telegram_log(bot, f"🔴 Ошибка в /bonus\nПользователь: {user_link} (ID: <code>{user_id}</code>)\nЧат: {chat_title_display_exc} (ID: <code>{chat_id}</code>)\nОшибка: <pre>{html.escape(str(e))}</pre>")
 
 
-@bonus_router.message(Command("my_streak", "mystreak", "streak", ignore_case=True))
+@bonus_router.message(Command("my_streak", "mystreak", "streak", "стрик", ignore_case=True))
 async def cmd_my_streak(message: Message, bot: Bot):
     if not message.from_user:
         await message.reply("Не удалось определить пользователя.")
