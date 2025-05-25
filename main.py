@@ -1033,7 +1033,11 @@ async def oneui_command(message: Message):
     current_user_chat_lock = await database.get_user_chat_lock(user_id, chat_id_current_message)
     async with current_user_chat_lock:
         logger.info(f"/oneui from user {user_id} in chat {chat_id_current_message} (thread: {original_message_thread_id}) - START")
-        response_message_parts: List[str] = []
+        
+        # Переименуем этот список, так как он будет содержать только части сообщения,
+        # которые добавляются ПЕРЕД итоговым результатом roll'а, но после проверки кулдауна.
+        # Сообщения о стрике будут добавляться отдельно.
+        pre_roll_response_parts: List[str] = [] 
         
         streak_bonus_version_change: float = 0.0
         streak_bonus_onecoin_change: int = 0
@@ -1042,15 +1046,20 @@ async def oneui_command(message: Message):
         set_last_used_time_arg: Optional[datetime] = None 
         force_update_last_used_arg: bool = False
 
-        # --- НАЧАЛО НОВОГО БЛОКА: ОБРАБОТКА ЕЖЕДНЕВНОГО СТРИКА (ВСЕГДА ВЫПОЛНЯЕТСЯ) ---
+        # --- НАЧАЛО БЛОКА: ОБРАБОТКА ЕЖЕДНЕВНОГО СТРИКА (ВСЕГДА ВЫПОЛНЯЕТСЯ) ---
+        # Здесь мы только РАССЧИТЫВАЕМ стрик и бонусы за него.
+        # Сообщения о стрике будут добавлены в response_message_parts В КОНЦЕ, после сообщения о кулдауне (если он есть)
+        # или основного сообщения OneUI.
         new_calculated_streak = 0
         user_streak_data = await database.get_user_daily_streak(user_id)
         current_streak_in_db = user_streak_data.get('current_streak', 0) if user_streak_data else 0
         last_streak_check_date_in_db = user_streak_data.get('last_streak_check_date') if user_streak_data else None
-        streak_updated_this_session = False
-
+        
+        streak_compensation_message: Optional[str] = None
+        streak_level_up_message: Optional[str] = None
+        streak_display_message: Optional[str] = None
+        
         if last_streak_check_date_in_db == current_local_date_for_streak:
-            logger.info(f"Streak for user {user_id} already processed today ({current_local_date_for_streak}). Current DB streak: {current_streak_in_db}")
             new_calculated_streak = current_streak_in_db
         elif last_streak_check_date_in_db is None or last_streak_check_date_in_db < (current_local_date_for_streak - timedelta(days=1)):
             if current_streak_in_db > 0:
@@ -1059,35 +1068,35 @@ async def oneui_command(message: Message):
                     if current_streak_in_db >= tier['min_streak_days_before_break']: comp_v, comp_c = tier['version_bonus'], tier['onecoin_bonus']; break
                 if comp_v == 0.0 and comp_c == 0 and current_streak_in_db > 0: comp_v, comp_c = Config.DEFAULT_STREAK_BREAK_COMPENSATION_VERSION, Config.DEFAULT_STREAK_BREAK_COMPENSATION_ONECOIN
                 if comp_v > 0 or comp_c > 0:
-                    response_message_parts.append(f"⚠️ Серия из {current_streak_in_db} дней прервана! Компенсация: <b>+{comp_v:.1f}</b>V, <b>+{comp_c}</b>C.")
+                    streak_compensation_message = f"⚠️ Серия из {current_streak_in_db} дней прервана! Компенсация: <b>+{comp_v:.1f}</b>V, <b>+{comp_c}</b>C."
                     streak_bonus_version_change += comp_v; streak_bonus_onecoin_change += comp_c
                     logger.info(f"User {user_id} streak broken ({current_streak_in_db} days). Compensation: +{comp_v:.1f}V, +{comp_c}C.")
-            new_calculated_streak = 1; streak_updated_this_session = True
+            new_calculated_streak = 1
+            await database.update_user_daily_streak(user_id, new_calculated_streak, current_local_date_for_streak, current_utc_time_for_command)
             logger.info(f"User {user_id} streak reset/started. New calculated streak: 1 on {current_local_date_for_streak}")
         elif last_streak_check_date_in_db == (current_local_date_for_streak - timedelta(days=1)):
-            new_calculated_streak = current_streak_in_db + 1; streak_updated_this_session = True
+            new_calculated_streak = current_streak_in_db + 1
+            await database.update_user_daily_streak(user_id, new_calculated_streak, current_local_date_for_streak, current_utc_time_for_command)
             logger.info(f"User {user_id} continued streak. Old DB: {current_streak_in_db}, New calculated: {new_calculated_streak} on {current_local_date_for_streak}")
         
-        if streak_updated_this_session:
-            await database.update_user_daily_streak(user_id, new_calculated_streak, current_local_date_for_streak, current_utc_time_for_command)
-            if new_calculated_streak > 0:
-                for goal in Config.DAILY_STREAKS_CONFIG:
-                    if new_calculated_streak == goal['target_days']:
-                        vs, oc = goal.get('version_reward',0.0), goal.get('onecoin_reward',0)
-                        if vs > 0 or oc > 0:
-                            response_message_parts.append(f"🎉 Стрик \"<b>{html.escape(goal['name'])}</b>\" ({new_calculated_streak} д.)! Награда: <b>+{vs:.1f}</b>V, <b>+{oc}</b>C.")
-                            streak_bonus_version_change += vs; streak_bonus_onecoin_change += oc
-                            logger.info(f"User {user_id} achieved streak '{goal['name']}': +{vs:.1f}V, +{oc}C")
-                        await check_and_grant_achievements(
-                            user_id, chat_id_current_message, message.bot,
-                            message_thread_id=original_message_thread_id,
-                            current_daily_streak=new_calculated_streak # Используем current_daily_streak
-                        )
-                        break
-        
-        # Отображение стрика (актуальное значение new_calculated_streak)
         if new_calculated_streak > 0:
-            response_message_parts.append(f"🔥 Текущий стрик: <b>{new_calculated_streak}</b> д.")
+            for goal in Config.DAILY_STREAKS_CONFIG:
+                if new_calculated_streak == goal['target_days']:
+                    vs, oc = goal.get('version_reward',0.0), goal.get('onecoin_reward',0)
+                    if vs > 0 or oc > 0:
+                        streak_level_up_message = f"🎉 Стрик \"<b>{html.escape(goal['name'])}</b>\" ({new_calculated_streak} д.)! Награда: <b>+{vs:.1f}</b>V, <b>+{oc}</b>C."
+                        streak_bonus_version_change += vs; streak_bonus_onecoin_change += oc
+                        logger.info(f"User {user_id} achieved streak '{goal['name']}': +{vs:.1f}V, +{oc}C")
+                    await check_and_grant_achievements(
+                        user_id, chat_id_current_message, message.bot,
+                        message_thread_id=original_message_thread_id,
+                        current_daily_streak=new_calculated_streak
+                    )
+                    break
+        
+        # Формирование строки отображения текущего стрика
+        if new_calculated_streak > 0:
+            streak_display_message_parts = [f"🔥 Текущий стрик: <b>{new_calculated_streak}</b> д."]
 
             next_goal_streak = next((g for g in Config.DAILY_STREAKS_CONFIG if g['target_days'] > new_calculated_streak), None)
             current_achieved_goal = next((g for g in Config.DAILY_STREAKS_CONFIG if g['target_days'] == new_calculated_streak), None)
@@ -1112,10 +1121,13 @@ async def oneui_command(message: Message):
                         pb_streak_fill_count = 10
 
                     pb_streak = fill_char * pb_streak_fill_count + Config.PROGRESS_BAR_EMPTY_CHAR * (10 - pb_streak_fill_count)
-                    response_message_parts.append(f"<b>{name_for_pb}</b>: {new_calculated_streak}/{target_for_pb['target_days']}\n{pb_streak}")
+                    streak_display_message_parts.append(f"<b>{name_for_pb}</b>: {new_calculated_streak}/{target_for_pb['target_days']}\n{pb_streak}")
             elif Config.DAILY_STREAKS_CONFIG and new_calculated_streak >= Config.DAILY_STREAKS_CONFIG[-1]['target_days']:
-                response_message_parts.append(f"👑 Вы <b>{html.escape(Config.DAILY_STREAKS_CONFIG[-1]['name'])}</b>! Легендарный стрик: {new_calculated_streak} д.!")
-        # --- КОНЕЦ НОВОГО БЛОКА: ОБРАБОТКА ЕЖЕДНЕВНОГО СТРИКА ---
+                streak_display_message_parts.append(f"👑 Вы <b>{html.escape(Config.DAILY_STREAKS_CONFIG[-1]['name'])}</b>! Легендарный стрик: {new_calculated_streak} д.!")
+            
+            streak_display_message = "\n".join(streak_display_message_parts)
+
+        # --- КОНЕЦ БЛОКА: ОБРАБОТКА ЕЖЕДНЕВНОГО СТРИКА ---
 
         try:
             # --- 1. ПРОВЕРКА БЛОКИРОВКИ ОТ ОГРАБЛЕНИЯ ---
@@ -1125,19 +1137,20 @@ async def oneui_command(message: Message):
                 if current_utc_time_for_command < blocked_until_utc:
                     blocked_until_local_str = blocked_until_utc.astimezone(local_tz).strftime('%d.%m.%Y %H:%M:%S %Z')
                     
-                    # Сообщение о блокировке будет включать уже обновленную информацию о стрике
                     block_msg = random.choice(ONEUI_BLOCKED_PHRASES).format(
                         block_time=blocked_until_local_str,
-                        streak_info="" # Удаляем эту часть, так как инфо о стрике уже в `response_message_parts`
+                        streak_info="" # Инфо о стрике будет добавлена отдельно после сообщения о блокировке
                     )
                     
-                    # Отправляем сообщение о блокировке, добавляя к нему общие части сообщения
+                    # Формируем окончательное сообщение о блокировке
                     final_blocked_response_parts = [f"{user_link}, {block_msg}"]
-                    if new_calculated_streak > 0: # Добавляем информацию о стрике
-                        final_blocked_response_parts.append(f"Ваш стрик: <b>{new_calculated_streak}</b> дней.")
-                        # Добавляем пояснение, что арест не сбрасывает стрик, но надо продолжить использовать /oneui
-                        final_blocked_response_parts.append("(Блокировка не сбрасывает стрик, если вы продолжите использовать /oneui каждый день).")
-
+                    if streak_compensation_message:
+                        final_blocked_response_parts.append(streak_compensation_message)
+                    if streak_level_up_message:
+                        final_blocked_response_parts.append(streak_level_up_message)
+                    if streak_display_message:
+                        final_blocked_response_parts.append(streak_display_message)
+                    
                     await message.reply("\n".join(final_blocked_response_parts), parse_mode="HTML", disable_web_page_preview=True)
                     logger.info(f"/oneui user {user_id} in chat {chat_id_current_message} - BLOCKED BY ROBBANK until {blocked_until_utc.isoformat()}. Streak PROCESSED.")
                     return 
@@ -1150,7 +1163,7 @@ async def oneui_command(message: Message):
             if available_extra_oneui_attempts > 0:
                 new_extra_attempts_count = available_extra_oneui_attempts - 1
                 await database.update_roulette_status(user_id, chat_id_current_message, {'extra_oneui_attempts': new_extra_attempts_count})
-                response_message_parts.append(f"🌀 Использована <b>доп. попытка /oneui</b>! Осталось: {new_extra_attempts_count}.")
+                pre_roll_response_parts.append(f"🌀 Использована <b>доп. попытка /oneui</b>! Осталось: {new_extra_attempts_count}.")
                 used_extra_attempt_this_time = True
                 force_update_last_used_arg = False # Доп. попытка не должна обновлять last_used для основного кулдауна
                 set_last_used_time_arg = None
@@ -1162,14 +1175,22 @@ async def oneui_command(message: Message):
                 if on_cooldown_status and next_reset_time_utc:
                     # Пользователь на обычном кулдауне
                     next_reset_local = next_reset_time_utc.astimezone(local_tz)
-                    chosen_cooldown_template = random.choice(ONEUI_COOLDOWN_RESPONSES)
+                    chosen_cooldown_template = random.choice(ONEUI_COOLDOWN_RESPONSES) 
                     cooldown_message = chosen_cooldown_template.format(time=next_reset_local.strftime('%H:%M'), zone=local_tz.zone)
                     
                     # Сначала добавляем сообщение о кулдауне
-                    response_message_parts.append(cooldown_message) #
+                    pre_roll_response_parts.append(cooldown_message) #
+                    
+                    # Затем добавляем сообщения о стрике
+                    if streak_compensation_message:
+                        pre_roll_response_parts.append(streak_compensation_message)
+                    if streak_level_up_message:
+                        pre_roll_response_parts.append(streak_level_up_message)
+                    if streak_display_message:
+                        pre_roll_response_parts.append(streak_display_message)
 
                     # Формируем итоговое сообщение, просто соединяя части
-                    final_cooldown_response = f"{user_link}, " + "".join(response_message_parts) #
+                    final_cooldown_response = f"{user_link}, " + "\n".join(pre_roll_response_parts) #
 
                     await message.reply(final_cooldown_response, parse_mode="HTML", disable_web_page_preview=True) #
                     logger.info(f"/oneui user {user_id} in chat {chat_id_current_message} - ON REGULAR COOLDOWN.") #
@@ -1180,8 +1201,10 @@ async def oneui_command(message: Message):
                     force_update_last_used_arg = True # Обновляем last_used для кулдауна
                     set_last_used_time_arg = current_utc_time_for_command
             
-
             # --- ОСНОВНАЯ ЛОГИКА ИЗМЕНЕНИЯ OneUI ---
+            # ... (остальной код, связанный с расчетом изменения версии OneUI,
+            # применением бонусов и обновлением БД) ...
+
             current_db_version = await database.get_user_version(user_id, chat_id_current_message)
             base_oneui_change = get_oneui_version_change()
             actual_base_change_for_next_steps = base_oneui_change
@@ -1193,7 +1216,7 @@ async def oneui_command(message: Message):
                 await database.update_roulette_status(user_id, chat_id_current_message, {'negative_change_protection_charges': new_charges})
                 original_negative_change = base_oneui_change
                 actual_base_change_for_next_steps = abs(base_oneui_change) 
-                response_message_parts.append(f"🛡️ Сработал <b>заряд защиты</b>! Изменение <code>{original_negative_change:.1f}</code> стало <code>+{actual_base_change_for_next_steps:.1f}</code>! Зарядов: {new_charges}.")
+                pre_roll_response_parts.append(f"🛡️ Сработал <b>заряд защиты</b>! Изменение <code>{original_negative_change:.1f}</code> стало <code>+{actual_base_change_for_next_steps:.1f}</code>! Зарядов: {new_charges}.")
             
             effective_oneui_change_from_roll_and_protection = actual_base_change_for_next_steps
             
@@ -1204,12 +1227,12 @@ async def oneui_command(message: Message):
                 if pending_boost_from_roulette is not None:
                     bonus_multiplier_value *= float(pending_boost_from_roulette)
                     await database.update_roulette_status(user_id, chat_id_current_message, {'pending_bonus_multiplier_boost': None})
-                    response_message_parts.append(f"🎲 Применен <b>буст x{float(pending_boost_from_roulette):.1f}</b> от рулетки к бонусу!")
+                    pre_roll_response_parts.append(f"🎲 Применен <b>буст x{float(pending_boost_from_roulette):.1f}</b> от рулетки к бонусу!")
                 
                 change_if_multiplier_applied = effective_oneui_change_from_roll_and_protection * bonus_multiplier_value
                 version_change_from_bonus_multiplier_applied = change_if_multiplier_applied - effective_oneui_change_from_roll_and_protection
                 effective_oneui_change_from_roll_and_protection = change_if_multiplier_applied
-                response_message_parts.append(f"✨ Применен бонус-множитель <b>x{bonus_multiplier_value:.2f}</b>! (<code>{actual_base_change_for_next_steps:.1f}</code> -> <code>{effective_oneui_change_from_roll_and_protection:.1f}</code>)")
+                pre_roll_response_parts.append(f"✨ Применен бонус-множитель <b>x{bonus_multiplier_value:.2f}</b>! (<code>{actual_base_change_for_next_steps:.1f}</code> -> <code>{effective_oneui_change_from_roll_and_protection:.1f}</code>)")
                 await database.update_user_bonus_multiplier_status(user_id, chat_id_current_message, user_bonus_mult_status['current_bonus_multiplier'], True, user_bonus_mult_status.get('last_claimed_timestamp'))
 
             total_version_change_before_phone_bonus = effective_oneui_change_from_roll_and_protection + streak_bonus_version_change
@@ -1221,7 +1244,7 @@ async def oneui_command(message: Message):
                     bonus_value_from_case = total_version_change_before_phone_bonus * (oneui_bonus_percent_from_case / 100.0)
                     phone_case_bonus_applied_value = bonus_value_from_case
                     final_oneui_change_to_apply = total_version_change_before_phone_bonus + bonus_value_from_case
-                    response_message_parts.append(f"📱 Бонус от чехла <b>{'+' if oneui_bonus_percent_from_case > 0 else ''}{oneui_bonus_percent_from_case:.0f}%</b> применен!")
+                    pre_roll_response_parts.append(f"📱 Бонус от чехла <b>{'+' if oneui_bonus_percent_from_case > 0 else ''}{oneui_bonus_percent_from_case:.0f}%</b> применен!")
                 else:
                     final_oneui_change_to_apply = total_version_change_before_phone_bonus
             except Exception as e_phone_bonus_main:
@@ -1234,14 +1257,14 @@ async def oneui_command(message: Message):
             main_roll_response_part = f"📉 Обнова не вышла." if base_oneui_change == 0.0 else \
                                      random.choice(POSITIVE_RESPONSES).replace("%.1f", f"<b>{base_oneui_change:.1f}</b>") if base_oneui_change > 0.0 else \
                                      random.choice(NEGATIVE_RESPONSES).replace("%.1f", f"<b>{abs(base_oneui_change):.1f}</b>")
-            response_message_parts.insert(0, main_roll_response_part)
-            response_message_parts.append(f"\n<b>Итоговая версия OneUI: <code>{new_version_final_rounded:.1f}</code>.</b>")
+            pre_roll_response_parts.append(main_roll_response_part) # Добавляем сообщение о результате roll'а
+            pre_roll_response_parts.append(f"\n<b>Итоговая версия OneUI: <code>{new_version_final_rounded:.1f}</code>.</b>")
 
             await database.update_user_version(
                 user_id, chat_id_current_message, new_version_final_rounded,
                 user_tg_username, full_name, chat_title_for_db, telegram_chat_public_link,
-                set_last_used_time_utc=set_last_used_time_arg, # None для доп. попытки, current_utc_time_for_command для бесплатной
-                force_update_last_used=force_update_last_used_arg # False для доп. попытки, True для бесплатной
+                set_last_used_time_utc=set_last_used_time_arg, 
+                force_update_last_used=force_update_last_used_arg
             )
 
             if streak_bonus_onecoin_change != 0:
@@ -1263,7 +1286,17 @@ async def oneui_command(message: Message):
                         f"PhoneCaseBonus={phone_case_bonus_applied_value:.2f}, "
                         f"TotalAppliedChange={final_oneui_change_to_apply:.2f}")
             
-            await message.reply("\n".join(response_message_parts), parse_mode="HTML", disable_web_page_preview=True)
+            # Собираем все части сообщения и отправляем.
+            # Сначала идут сообщения о кулдауне/доп. попытках, затем о стрике, затем основной результат.
+            final_response_message_parts = pre_roll_response_parts.copy()
+            if streak_compensation_message:
+                final_response_message_parts.append(streak_compensation_message)
+            if streak_level_up_message:
+                final_response_message_parts.append(streak_level_up_message)
+            if streak_display_message:
+                final_response_message_parts.append(streak_display_message)
+
+            await message.reply("\n".join(final_response_message_parts), parse_mode="HTML", disable_web_page_preview=True)
             logger.info(f"/oneui user {user_id} in chat {chat_id_current_message} (thread: {original_message_thread_id}) - SUCCESS")
 
         except Exception as e:
