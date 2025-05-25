@@ -152,15 +152,15 @@ async def cmd_market_buy_item(message: Message, command: CommandObject, state: F
         final_total_price_to_charge = 0
         original_price_display_if_discounted = 0 # Будет использоваться, если применяется скидка, но по умолчанию это будет динамическая цена
         
-        if item_key_to_buy == "oneui_attempt":
-            final_total_price_to_charge = int(max(Config.MIN_MARKET_DYNAMIC_PRICE, current_balance * Config.MARKET_ONEUI_ATTEMPT_PERCENT_OF_BALANCE)) # <--- ИЗМЕНЕНИЕ ЗДЕСЬ
-            original_price_display_if_discounted = final_total_price_to_charge 
-        elif item_key_to_buy == "roulette_spin":
-            final_total_price_to_charge = int(max(Config.MIN_MARKET_DYNAMIC_PRICE, current_balance * Config.MARKET_ROULETTE_SPIN_PERCENT_OF_BALANCE)) # <--- ИЗМЕНЕНИЕ ЗДЕСЬ
-            original_price_display_if_discounted = final_total_price_to_charge
-        elif item_key_to_buy == "bonus_attempt":
-            final_total_price_to_charge = int(max(Config.MIN_MARKET_DYNAMIC_PRICE, current_balance * Config.MARKET_BONUS_ATTEMPT_PERCENT_OF_BALANCE)) # <--- ИЗМЕНЕНИЕ ЗДЕСЬ
-            original_price_display_if_discounted = final_total_price_to_charge
+        if item_key == "oneui_attempt":
+    # Цена = 30% от текущего баланса, но не менее MIN_MARKET_DYNAMIC_PRICE
+            item_price_display = int(max(Config.MIN_MARKET_DYNAMIC_PRICE, balance * Config.MARKET_ONEUI_ATTEMPT_PERCENT_OF_BALANCE))
+       elif item_key == "roulette_spin":
+    # Цена = 35% от текущего баланса, но не менее MIN_MARKET_DYNAMIC_PRICE
+            item_price_display = int(max(Config.MIN_MARKET_DYNAMIC_PRICE, balance * Config.MARKET_ROULETTE_SPIN_PERCENT_OF_BALANCE))
+       elif item_key == "bonus_attempt":
+    # Цена = 25% от текущего баланса, но не менее MIN_MARKET_DYNAMIC_PRICE
+            item_price_display = int(max(Config.MIN_MARKET_DYNAMIC_PRICE, balance * Config.MARKET_BONUS_ATTEMPT_PERCENT_OF_BALANCE))
         else:
             # Для остальных товаров (если будут), используем старую логику с инфляцией
             base_item_price_per_unit = item_details['price']
