@@ -73,7 +73,7 @@ async def check_and_grant_achievements(
                 elif metric_key == "current_onecoin_balance":
                     user_metrics[metric_key] = await database.get_user_onecoins(user_id, chat_id)
                 elif metric_key == "current_daily_streak":
-                    streak_data = await database.get_user_daily_streak(user_id)
+                    streak_data = await database.get_user_daily_streak(user_id, chat_id)
                     current_streak = 0
                     if streak_data and streak_data.get('last_streak_check_date'):
                         today_local_date = datetime.now(LOCAL_TIMEZONE_OBJ).date()
