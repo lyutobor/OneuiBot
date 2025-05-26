@@ -167,7 +167,7 @@ async def _process_robbank_result(
         block_until_utc = block_until_local.astimezone(dt_timezone.utc)
 
         streak_info_msg_part = ""
-        user_streak_data = await database.get_user_daily_streak(user_id)
+        user_streak_data = await database.get_user_daily_streak(user_id, chat_id)
         if user_streak_data and user_streak_data.get('current_streak', 0) > 0:
             current_s = user_streak_data['current_streak']
             streak_name_for_msg = ""
