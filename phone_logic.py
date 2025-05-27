@@ -3672,3 +3672,4 @@ def setup_phone_handlers(dp: Router):
     """Регистрирует обработчики команд, связанных с телефонами."""
     dp.include_router(phone_router)
     logger.info("Обработчики команд для телефонов зарегистрированы.")
+}
