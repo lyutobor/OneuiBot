@@ -2380,8 +2380,8 @@ async def cmd_equip_case(message: Message, command: CommandObject, bot: Bot):
                 raise Exception(f"Не удалось обновить данные телефона {phone_inventory_id_arg} при надевании чехла.")
 
             await message.reply(
-                f"{user_link}, вы успешно надели чехол \"<b>{html.escape(new_case_static_info.get('name', new_case_key))}\</b>\" "
-                f"на телефон \"<b>{html.escape(phone_static_info.get('name', phone_model_key))}\</b>\" (ID: {phone_inventory_id_arg}).",
+                f"{user_link}, вы успешно надели чехол \"<b>{html.escape(new_case_static_info.get('name', new_case_key))}</b>\" "  # Убраны лишние \
+                f"на телефон \"<b>{html.escape(phone_static_info.get('name', phone_model_key))}</b>\" (ID: {phone_inventory_id_arg}).", # Убраны лишние \
                 parse_mode="HTML"
             )
             if old_case_key_on_phone:
