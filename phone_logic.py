@@ -2380,8 +2380,8 @@ async def cmd_equip_case(message: Message, command: CommandObject, bot: Bot):
                 raise Exception(f"Не удалось обновить данные телефона {phone_inventory_id_arg} при надевании чехла.")
 
             await message.reply(
-                f"{user_link}, вы успешно надели чехол \"<b>{html.escape(new_case_static_info.get('name', new_case_key))}</b>\" "  # Убраны лишние \
-                f"на телефон \"<b>{html.escape(phone_static_info.get('name', phone_model_key))}</b>\" (ID: {phone_inventory_id_arg}).", # Убраны лишние \
+                f"{user_link}, вы успешно надели чехол \"<b>{html.escape(new_case_static_info.get('name', new_case_key))}\</b>\" "
+                f"на телефон \"<b>{html.escape(phone_static_info.get('name', phone_model_key))}\</b>\" (ID: {phone_inventory_id_arg}).",
                 parse_mode="HTML"
             )
             if old_case_key_on_phone:
@@ -2568,49 +2568,9 @@ async def cmd_charge_phone(message: Message, command: CommandObject, bot: Bot):
             f"{user_link}, укажите ID телефона, который нужно зарядить.\n"
             f"Пример: /chargephone 123\n"
             f"ID телефонов: /myphones",
-            parse_mode="HTML",
-            disable_web_page_preview=True # Добавлено
+            parse_mode="HTML"
         )
         return
-
-    try:
-        phone_inventory_id_arg = int(args_str.strip())
-    except ValueError:
-        await message.reply("ID телефона должен быть числом.")
-        return
-
-    charge_cost = getattr(Config, "PHONE_CHARGE_COST", 20)
-    base_battery_days = getattr(Config, "PHONE_BASE_BATTERY_DAYS", 2)
-    charge_window_days = getattr(Config, "PHONE_CHARGE_WINDOW_DAYS", 2)
-
-    conn = None
-    try:
-        conn = await database.get_connection()
-        async with conn.transaction():
-            phone_db_data = await database.get_phone_by_inventory_id(phone_inventory_id_arg, conn_ext=conn) # Используем conn_ext
-            if not phone_db_data or phone_db_data['user_id'] != user_id:
-                await message.reply(f"Телефон с ID <code>{phone_inventory_id_arg}</code> не найден в вашем инвентаре.", parse_mode="HTML", disable_web_page_preview=True)
-                return
-            if phone_db_data.get('is_sold', False): # Используем .get
-                await message.reply(f"Телефон ID <code>{phone_inventory_id_arg}</code> уже продан.", parse_mode="HTML", disable_web_page_preview=True)
-                return
-
-            # --- НАЧАЛО ИЗМЕНЕНИЯ ---
-            # Проверка на сломанный аккумулятор
-            is_phone_broken = phone_db_data.get('is_broken', False)
-            broken_component_key = phone_db_data.get('broken_component_key')
-
-            if is_phone_broken and broken_component_key:
-                component_info = PHONE_COMPONENTS.get(broken_component_key)
-                if component_info and component_info.get("component_type") == "battery":
-                    broken_battery_name = html.escape(component_info.get('name', 'Аккумулятор'))
-                    await message.reply(
-                        f"🔋❌ Аккумулятор \"<b>{broken_battery_name}</b>\" телефона ID <code>{phone_inventory_id_arg}</code> окончательно сломан! "
-                        f"Его невозможно зарядить. Требуется ремонт (/repairphone).",
-                        parse_mode="HTML",
-                        disable_web_page_preview=True
-                    )
-                    return
 
     try:
         phone_inventory_id_arg = int(args_str.strip())
@@ -3672,4 +3632,3 @@ def setup_phone_handlers(dp: Router):
     """Регистрирует обработчики команд, связанных с телефонами."""
     dp.include_router(phone_router)
     logger.info("Обработчики команд для телефонов зарегистрированы.")
-}
