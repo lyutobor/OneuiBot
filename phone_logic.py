@@ -2594,7 +2594,10 @@ async def cmd_charge_phone(message: Message, command: CommandObject, bot: Bot):
                 await message.reply(f"Телефон ID <code>{phone_inventory_id_arg}</code> уже продан.", parse_mode="HTML")
                 return
 
-            # Проверка на сломанный аккумулятор
+            # --- НАЧАЛО ИСПРАВЛЕННОГО БЛОКА ПРОВЕРКИ АККУМУЛЯТОРА ---
+            now_utc = datetime.now(dt_timezone.utc) # <--- ДОБАВЛЕНО ЗДЕСЬ: определяем текущее время
+
+            # 1. Проверка на явную поломку аккумулятора (is_broken и broken_component_key)
             is_explicitly_broken_battery = False
             broken_component_key_from_db = phone_db_data.get('broken_component_key')
             if phone_db_data.get('is_broken') and \
@@ -2633,18 +2636,15 @@ async def cmd_charge_phone(message: Message, command: CommandObject, bot: Bot):
                     parse_mode="HTML", 
                     disable_web_page_preview=True
                 )
-                return
+                return # Важно: выходим из функции, если зарядка невозможна
             elif is_permanently_dead_battery_by_time:
-                # Если он окончательно сломан по времени, но не помечен как is_broken,
-                # то по-хорошему, нужно бы его и в БД пометить как is_broken = True и указать broken_component_key.
-                # Но для простоты пока просто запретим зарядку.
-                # TODO: Рассмотреть возможность автоматического обновления статуса is_broken в БД здесь.
                 await message.reply(
                     f"Аккумулятор телефона ID <code>{phone_inventory_id_arg}</code> окончательно вышел из строя (не был заряжен вовремя)! Зарядка невозможна. Вероятно, его нужно чинить или он уже не подлежит ремонту.", 
                     parse_mode="HTML", 
                     disable_web_page_preview=True
                 )
-                return
+                return # Важно: выходим из функции, если зарядка невозможна
+            # --- КОНЕЦ ИСПРАВЛЕННОГО БЛОКА ПРОВЕРКИ АККУМУЛЯТОРА ---
 
             now_utc = datetime.now(dt_timezone.utc)
             battery_dead_after_utc = phone_db_data.get('battery_dead_after_utc')
