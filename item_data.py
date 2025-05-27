@@ -7,21 +7,21 @@
 PHONE_COMPONENTS = {
     # A-серия (сумма = 200)
     "SCREEN_A":  {"name": "Экран A-серии", "price": 68, "series": "A", "component_type": "component"},
-    "BATTERY_A": {"name": "Батарея A-серии", "price": 51, "series": "A", "component_type": "component"},
+    "BATTERY_A": {"name": "Батарея A-серии", "price": 51, "series": "A", "component_type": "battery"}, # <--- ИЗМЕНЕНО
     "CPU_A":     {"name": "Процессор A-серии", "price": 34, "series": "A", "component_type": "component"},
     "BOARD_A":   {"name": "Плата A-серии", "price": 30, "series": "A", "component_type": "component"},
     "BODY_A":    {"name": "Корпус A-серии", "price": 17, "series": "A", "component_type": "component"},
 
     # S-серия (сумма = 560)
     "SCREEN_S":  {"name": "Экран S-серии", "price": 190, "series": "S", "component_type": "component"},
-    "BATTERY_S": {"name": "Батарея S-серии", "price": 142, "series": "S", "component_type": "component"},
+    "BATTERY_S": {"name": "Батарея S-серии", "price": 142, "series": "S", "component_type": "battery"}, # <--- ИЗМЕНЕНО
     "CPU_S":     {"name": "Процессор S-серии", "price": 95, "series": "S", "component_type": "component"},
     "BOARD_S":   {"name": "Плата S-серии", "price": 85, "series": "S", "component_type": "component"},
     "BODY_S":    {"name": "Корпус S-серии", "price": 48, "series": "S", "component_type": "component"},
 
     # Z-серия (сумма = 1136)
     "SCREEN_Z":  {"name": "Экран Z-серии", "price": 385, "series": "Z", "component_type": "component"},
-    "BATTERY_Z": {"name": "Батарея Z-серии", "price": 289, "series": "Z", "component_type": "component"},
+    "BATTERY_Z": {"name": "Батарея Z-серии", "price": 289, "series": "Z", "component_type": "battery"}, # <--- ИЗМЕНЕНО
     "CPU_Z":     {"name": "Процессор Z-серии", "price": 192, "series": "Z", "component_type": "component"},
     "BOARD_Z":   {"name": "Плата Z-серии", "price": 174, "series": "Z", "component_type": "component"},
     "BODY_Z":    {"name": "Корпус Z-серии", "price": 96, "series": "Z", "component_type": "component"},
