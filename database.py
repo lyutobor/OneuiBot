@@ -2937,7 +2937,7 @@ async def add_item_to_user_inventory(
                     user_id, item_key, item_type, data_to_db_as_string # <--- Используем строку
                 )
             return True
-        elif item_type in ['component', 'memory_module']:
+        elif item_type in ['component', 'memory_module', 'battery']:
             existing_item = await conn.fetchrow(
                 "SELECT user_item_id, quantity, data FROM user_items WHERE user_id = $1 AND item_key = $2 AND item_type = $3",
                 user_id, item_key, item_type
