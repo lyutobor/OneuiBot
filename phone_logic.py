@@ -2595,10 +2595,55 @@ async def cmd_charge_phone(message: Message, command: CommandObject, bot: Bot):
                 return
 
             # Проверка на сломанный аккумулятор
+            is_explicitly_broken_battery = False
+            broken_component_key_from_db = phone_db_data.get('broken_component_key')
             if phone_db_data.get('is_broken') and \
-               phone_db_data.get('broken_component_key') and \
-               PHONE_COMPONENTS.get(phone_db_data['broken_component_key'], {}).get('component_type') == "battery": # Более точная проверка
-                await message.reply(f"Аккумулятор телефона ID <code>{phone_inventory_id_arg}</code> сломан! Его нужно сначала починить.", parse_mode="HTML")
+               broken_component_key_from_db and \
+               PHONE_COMPONENTS.get(broken_component_key_from_db, {}).get('component_type') == "battery":
+                is_explicitly_broken_battery = True
+
+            # 2. Проверка на окончательную поломку по времени (battery_break_after_utc)
+            is_permanently_dead_battery_by_time = False
+            battery_break_after_utc_val = phone_db_data.get('battery_break_after_utc')
+            battery_break_after_utc_dt = None
+
+            if isinstance(battery_break_after_utc_val, str):
+                try:
+                    battery_break_after_utc_dt = datetime.fromisoformat(battery_break_after_utc_val)
+                except ValueError:
+                    logger.warning(f"ChargePhone: Некорректный формат battery_break_after_utc (str): {battery_break_after_utc_val} для phone_id {phone_inventory_id_arg}")
+            elif isinstance(battery_break_after_utc_val, datetime):
+                battery_break_after_utc_dt = battery_break_after_utc_val
+            
+            if battery_break_after_utc_dt:
+                # Убедимся, что datetime aware
+                if battery_break_after_utc_dt.tzinfo is None:
+                    battery_break_after_utc_dt = battery_break_after_utc_dt.replace(tzinfo=dt_timezone.utc)
+                else:
+                    battery_break_after_utc_dt = battery_break_after_utc_dt.astimezone(dt_timezone.utc)
+                
+                # Сравниваем с текущим временем UTC
+                if now_utc >= battery_break_after_utc_dt:
+                    is_permanently_dead_battery_by_time = True
+
+            # Принимаем решение на основе проверок
+            if is_explicitly_broken_battery:
+                await message.reply(
+                    f"Аккумулятор телефона ID <code>{phone_inventory_id_arg}</code> сломан (отмечен как поврежденный)! Его нужно сначала починить.", 
+                    parse_mode="HTML", 
+                    disable_web_page_preview=True
+                )
+                return
+            elif is_permanently_dead_battery_by_time:
+                # Если он окончательно сломан по времени, но не помечен как is_broken,
+                # то по-хорошему, нужно бы его и в БД пометить как is_broken = True и указать broken_component_key.
+                # Но для простоты пока просто запретим зарядку.
+                # TODO: Рассмотреть возможность автоматического обновления статуса is_broken в БД здесь.
+                await message.reply(
+                    f"Аккумулятор телефона ID <code>{phone_inventory_id_arg}</code> окончательно вышел из строя (не был заряжен вовремя)! Зарядка невозможна. Вероятно, его нужно чинить или он уже не подлежит ремонту.", 
+                    parse_mode="HTML", 
+                    disable_web_page_preview=True
+                )
                 return
 
             now_utc = datetime.now(dt_timezone.utc)
