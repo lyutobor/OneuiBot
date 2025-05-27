@@ -1688,7 +1688,7 @@ async def process_daily_business_income_and_events(bot: Bot):
 
         if income_to_deposit > 0: # <-- Вот эта строка 1660
                         # Строки ниже должны быть с ОДИНАКОВЫМ и УВЕЛИЧЕННЫМ отступом относительно строки 'if income_to_deposit > 0:'
-                        current_total_income = await database.update_user_total_business_income(user_id, 0, conn_ext=conn)
+                        current_total_income = await database.update_user_total_business_income(user_id, deposited_amount, conn_ext=conn)
                         await check_and_grant_achievements(
                             user_id,
                             chat_id,
