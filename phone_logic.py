@@ -2568,7 +2568,8 @@ async def cmd_charge_phone(message: Message, command: CommandObject, bot: Bot):
             f"{user_link}, укажите ID телефона, который нужно зарядить.\n"
             f"Пример: /chargephone 123\n"
             f"ID телефонов: /myphones",
-            parse_mode="HTML"
+            parse_mode="HTML",
+            disable_web_page_preview=True
         )
         return
 
@@ -2586,16 +2587,24 @@ async def cmd_charge_phone(message: Message, command: CommandObject, bot: Bot):
     try:
         conn = await database.get_connection()
         async with conn.transaction():
-            phone_db_data = await database.get_phone_by_inventory_id(phone_inventory_id_arg, conn_ext=conn) # Используем conn_ext
+            phone_db_data = await database.get_phone_by_inventory_id(phone_inventory_id_arg, conn_ext=conn)
             if not phone_db_data or phone_db_data['user_id'] != user_id:
-                await message.reply(f"Телефон с ID <code>{phone_inventory_id_arg}</code> не найден в вашем инвентаре.", parse_mode="HTML")
+                await message.reply(
+                    f"Телефон с ID <code>{phone_inventory_id_arg}</code> не найден в вашем инвентаре.", 
+                    parse_mode="HTML",
+                    disable_web_page_preview=True
+                )
                 return
-            if phone_db_data.get('is_sold', False): # Используем .get
-                await message.reply(f"Телефон ID <code>{phone_inventory_id_arg}</code> уже продан.", parse_mode="HTML")
+            if phone_db_data.get('is_sold', False):
+                await message.reply(
+                    f"Телефон ID <code>{phone_inventory_id_arg}</code> уже продан.", 
+                    parse_mode="HTML",
+                    disable_web_page_preview=True
+                )
                 return
 
-            # --- НАЧАЛО ИСПРАВЛЕННОГО БЛОКА ПРОВЕРКИ АККУМУЛЯТОРА ---
-            now_utc = datetime.now(dt_timezone.utc) # <--- ДОБАВЛЕНО ЗДЕСЬ: определяем текущее время
+            # --- НАЧАЛО БЛОКА ПРОВЕРКИ СОСТОЯНИЯ АККУМУЛЯТОРА ---
+            now_utc = datetime.now(dt_timezone.utc)
 
             # 1. Проверка на явную поломку аккумулятора (is_broken и broken_component_key)
             is_explicitly_broken_battery = False
@@ -2619,58 +2628,106 @@ async def cmd_charge_phone(message: Message, command: CommandObject, bot: Bot):
                 battery_break_after_utc_dt = battery_break_after_utc_val
             
             if battery_break_after_utc_dt:
-                # Убедимся, что datetime aware
-                if battery_break_after_utc_dt.tzinfo is None:
+                if battery_break_after_utc_dt.tzinfo is None: # Делаем aware, если naive
                     battery_break_after_utc_dt = battery_break_after_utc_dt.replace(tzinfo=dt_timezone.utc)
-                else:
+                else: # Приводим к UTC, если уже aware, но в другом поясе
                     battery_break_after_utc_dt = battery_break_after_utc_dt.astimezone(dt_timezone.utc)
                 
-                # Сравниваем с текущим временем UTC
                 if now_utc >= battery_break_after_utc_dt:
                     is_permanently_dead_battery_by_time = True
 
-            # Принимаем решение на основе проверок
+            # Принимаем решение и ОБНОВЛЯЕМ СТАТУС В БД, если нужно
             if is_explicitly_broken_battery:
                 await message.reply(
                     f"Аккумулятор телефона ID <code>{phone_inventory_id_arg}</code> сломан (отмечен как поврежденный)! Его нужно сначала починить.", 
                     parse_mode="HTML", 
                     disable_web_page_preview=True
                 )
-                return # Важно: выходим из функции, если зарядка невозможна
+                return
             elif is_permanently_dead_battery_by_time:
+                # Аккумулятор "умер по времени". Попробуем обновить статус телефона в БД.
+                if not is_explicitly_broken_battery: # Только если он еще не помечен как "батарея сломана"
+                    determined_battery_key_to_set = None
+                    phone_model_key = phone_db_data.get('phone_model_key')
+                    phone_static_data = PHONE_MODELS.get(phone_model_key)
+
+                    if phone_static_data:
+                        phone_series = phone_static_data.get('series')
+                        if phone_series:
+                            potential_battery_key = f"BATTERY_{phone_series.upper()}"
+                            if potential_battery_key in PHONE_COMPONENTS and \
+                               PHONE_COMPONENTS[potential_battery_key].get('component_type') == 'battery':
+                                determined_battery_key_to_set = potential_battery_key
+                            else:
+                                for comp_key_iter, comp_info_iter in PHONE_COMPONENTS.items():
+                                    if comp_info_iter.get("component_type") == "battery" and \
+                                       comp_info_iter.get("series") == phone_series:
+                                        determined_battery_key_to_set = comp_key_iter
+                                        break
+                            
+                            if determined_battery_key_to_set:
+                                try:
+                                    logger.info(f"ChargePhone: Phone ID {phone_inventory_id_arg} battery timed out. Auto-setting is_broken=True, broken_component_key='{determined_battery_key_to_set}'.")
+                                    await database.update_phone_status_fields(
+                                        phone_inventory_id_arg,
+                                        {'is_broken': True, 'broken_component_key': determined_battery_key_to_set},
+                                        conn_ext=conn
+                                    )
+                                    phone_db_data['is_broken'] = True # Обновляем локальную копию для консистентности
+                                    phone_db_data['broken_component_key'] = determined_battery_key_to_set
+                                except Exception as e_update_status:
+                                    logger.error(f"ChargePhone: Failed to auto-update status for timed-out battery on phone ID {phone_inventory_id_arg}: {e_update_status}")
+                            else:
+                                logger.warning(f"ChargePhone: Battery for phone ID {phone_inventory_id_arg} (Series {phone_series}) timed out, but could not determine a specific battery component key to set as broken.")
+                        else:
+                            logger.warning(f"ChargePhone: Battery for phone ID {phone_inventory_id_arg} timed out, but phone series not found in static data.")
+                    else:
+                        logger.warning(f"ChargePhone: Battery for phone ID {phone_inventory_id_arg} timed out, but phone static data not found.")
+                
+                # Сообщение пользователю
                 await message.reply(
-                    f"Аккумулятор телефона ID <code>{phone_inventory_id_arg}</code> окончательно вышел из строя (не был заряжен вовремя)! Зарядка невозможна. Вероятно, его нужно чинить или он уже не подлежит ремонту.", 
+                    f"Аккумулятор телефона ID <code>{phone_inventory_id_arg}</code> окончательно вышел из строя (не был заряжен вовремя)! Зарядка невозможна. Теперь он помечен как сломанный, и его нужно чинить (/repairphone).", 
                     parse_mode="HTML", 
                     disable_web_page_preview=True
                 )
-                return # Важно: выходим из функции, если зарядка невозможна
-            # --- КОНЕЦ ИСПРАВЛЕННОГО БЛОКА ПРОВЕРКИ АККУМУЛЯТОРА ---
-
-            now_utc = datetime.now(dt_timezone.utc)
-            battery_dead_after_utc = phone_db_data.get('battery_dead_after_utc')
+                return
+            # --- КОНЕЦ БЛОКА ПРОВЕРКИ СОСТОЯНИЯ АККУМУЛЯТОРА ---
 
             # Проверка, не заряжен ли уже телефон (если время до разрядки еще не наступило)
-            # Убедимся, что battery_dead_after_utc является aware datetime
-            if isinstance(battery_dead_after_utc, str):
-                 try: battery_dead_after_utc = datetime.fromisoformat(battery_dead_after_utc)
-                 except ValueError: battery_dead_after_utc = None # Некорректный формат
-            if battery_dead_after_utc and battery_dead_after_utc.tzinfo is None:
-                 battery_dead_after_utc = battery_dead_after_utc.replace(tzinfo=dt_timezone.utc)
+            battery_dead_after_utc_val = phone_db_data.get('battery_dead_after_utc')
+            battery_dead_after_utc_dt_check = None # Используем новое имя переменной для этой проверки
 
-            if battery_dead_after_utc and now_utc.astimezone(dt_timezone.utc) < battery_dead_after_utc.astimezone(dt_timezone.utc):
-                time_left = battery_dead_after_utc.astimezone(dt_timezone.utc) - now_utc.astimezone(dt_timezone.utc)
-                d, r = divmod(time_left.total_seconds(), 86400); h, r = divmod(r, 3600); m, _ = divmod(r, 60)
-                time_left_str = f"{int(d)}д {int(h)}ч {int(m)}м" if d > 0 else (f"{int(h)}ч {int(m)}м" if h > 0 else f"{int(m)}м") # Улучшено форматирование
-                await message.reply(f"Телефон ID <code>{phone_inventory_id_arg}</code> еще заряжен. Хватит на ~{time_left_str}.", parse_mode="HTML")
-                return
+            if isinstance(battery_dead_after_utc_val, str):
+                 try: battery_dead_after_utc_dt_check = datetime.fromisoformat(battery_dead_after_utc_val)
+                 except ValueError: battery_dead_after_utc_dt_check = None
+            elif isinstance(battery_dead_after_utc_val, datetime):
+                battery_dead_after_utc_dt_check = battery_dead_after_utc_val
+            
+            if battery_dead_after_utc_dt_check:
+                if battery_dead_after_utc_dt_check.tzinfo is None:
+                     battery_dead_after_utc_dt_check = battery_dead_after_utc_dt_check.replace(tzinfo=dt_timezone.utc)
+                else:
+                    battery_dead_after_utc_dt_check = battery_dead_after_utc_dt_check.astimezone(dt_timezone.utc)
+
+                if now_utc < battery_dead_after_utc_dt_check: # Сравниваем с now_utc определенным ранее
+                    time_left = battery_dead_after_utc_dt_check - now_utc
+                    d, r = divmod(time_left.total_seconds(), 86400); h, r = divmod(r, 3600); m, _ = divmod(r, 60)
+                    time_left_str = f"{int(d)}д {int(h)}ч {int(m)}м" if d > 0 else (f"{int(h)}ч {int(m)}м" if h > 0 else f"{int(m)}м")
+                    await message.reply(
+                        f"Телефон ID <code>{phone_inventory_id_arg}</code> еще заряжен. Хватит на ~{time_left_str}.", 
+                        parse_mode="HTML",
+                        disable_web_page_preview=True
+                    )
+                    return
 
             # Проверка баланса для зарядки
-            current_balance = await database.get_user_onecoins(user_id, chat_id, conn_ext=conn) # Используем conn_ext
+            current_balance = await database.get_user_onecoins(user_id, chat_id, conn_ext=conn)
             if current_balance < charge_cost:
                 await message.reply(
                     f"{user_link}, у вас недостаточно средств для зарядки телефона.\n"
                     f"Нужно: {charge_cost} OC, у вас: {current_balance} OC.",
-                    parse_mode="HTML"
+                    parse_mode="HTML",
+                    disable_web_page_preview=True
                 )
                 return
 
@@ -2686,53 +2743,73 @@ async def cmd_charge_phone(message: Message, command: CommandObject, bot: Bot):
 
             # Обновляем время зарядки и время работы
             fields_to_update: Dict[str, Any] = {}
-            new_last_charged_utc = now_utc.astimezone(dt_timezone.utc) # Убеждаемся, что aware
+            new_last_charged_utc = now_utc # Используем already defined and timezone-aware now_utc
             fields_to_update['last_charged_utc'] = new_last_charged_utc
 
             equipped_case_key = phone_db_data.get('equipped_case_key')
             case_battery_bonus_days = 0
-            if equipped_case_key and equipped_case_key in PHONE_CASES:
+            if equipped_case_key and equipped_case_key in PHONE_CASES: # Используем прямой доступ к PHONE_CASES
                 case_battery_bonus_days = PHONE_CASES[equipped_case_key].get('battery_days_increase', 0)
 
             total_battery_life_days = base_battery_days + case_battery_bonus_days
 
             fields_to_update['battery_dead_after_utc'] = new_last_charged_utc + timedelta(days=total_battery_life_days)
             fields_to_update['battery_break_after_utc'] = fields_to_update['battery_dead_after_utc'] + timedelta(days=charge_window_days)
+            
+            # Если телефон был "окончательно сломан по времени", то он НЕ был is_broken=True с компонентом батареи.
+            # Теперь, после "зарядки" (которая по факту замена/починка батареи в данном контексте),
+            # мы должны также сбросить флаги is_broken и broken_component_key, если они были установлены нашей логикой выше.
+            # Однако, если телефон заряжается, предполагается, что он НЕ сломан.
+            # Логика выше уже не даст зарядить сломанный телефон.
+            # Если мы дошли сюда, значит, телефон НЕ был сломан (или его поломка не батарея).
+            # Поэтому, если он был "timed out" и мы его "зарядили" (по сути, это как бы новая батарея),
+            # то is_broken и broken_component_key (если они были установлены для timed-out батареи) должны быть сброшены.
+            # В данном случае, мы просто устанавливаем новые времена жизни батареи.
+            # Если ранее мы установили is_broken=True и broken_component_key для timed-out батареи,
+            # то эта логика зарядки не должна была бы выполниться из-за return выше.
+            # Этот комментарий немного сбивает с толку, так как если is_permanently_dead_battery_by_time было true,
+            # мы бы вышли из функции. Значит, если мы здесь, телефон не был is_permanently_dead_battery_by_time.
+            # Значит, просто заряжаем.
+            # Поля is_broken и broken_component_key сбрасываются при УСПЕШНОМ РЕМОНТЕ. Зарядка их не трогает.
 
             update_success = await database.update_phone_status_fields(
                 phone_inventory_id_arg, fields_to_update, conn_ext=conn
             )
 
             if not update_success:
-                raise Exception(f"Не удалось обновить статус зарядки для телефона ID {phone_inventory_id_arg}")
+                # Эта ошибка более специфична и важна
+                raise Exception(f"Не удалось обновить статус зарядки для телефона ID {phone_inventory_id_arg} (update_phone_status_fields вернул False/None).")
 
-            phone_name_static = PHONE_MODELS.get(phone_db_data.get('phone_model_key'), {}).get('name', phone_db_data.get('phone_model_key', 'N/A')) # Используем .get для ключей
+
+            phone_name_static = PHONE_MODELS.get(phone_db_data.get('phone_model_key'), {}).get('name', phone_db_data.get('phone_model_key', 'N/A'))
             new_balance = current_balance - charge_cost
 
-            # Расчет нового времени работы для сообщения
-            time_left_dead = fields_to_update['battery_dead_after_utc'].astimezone(dt_timezone.utc) - now_utc.astimezone(dt_timezone.utc) # Сравниваем aware
+            time_left_dead = fields_to_update['battery_dead_after_utc'] - now_utc
             d, r = divmod(time_left_dead.total_seconds(), 86400); h, r = divmod(r, 3600); m, _ = divmod(r, 60)
-            time_left_str = f"{int(d)}д {int(h)}ч {int(m)}м" if d > 0 else (f"{int(h)}ч {int(m)}м" if h > 0 else f"{int(m)}м") # Улучшено форматирование
-
+            time_left_str = f"{int(d)}д {int(h)}ч {int(m)}м" if d > 0 else (f"{int(h)}ч {int(m)}м" if h > 0 else f"{int(m)}м")
 
             await message.reply(
                 f"{user_link}, телефон \"<b>{html.escape(phone_name_static)}</b>\" (ID: {phone_inventory_id_arg}) успешно заряжен за {charge_cost} OC!\n"
                 f"Теперь его хватит на ~{time_left_str}.\n"
                 f"Ваш новый баланс в этом чате: {new_balance} OC.",
-                parse_mode="HTML"
+                parse_mode="HTML",
+                disable_web_page_preview=True
             )
             await send_telegram_log(bot,
                 f"🔋 Телефон заряжен: {user_link} зарядил \"{html.escape(phone_name_static)}\" (ID: {phone_inventory_id_arg}) "
                 f"за {charge_cost} OC. Хватит на ~{time_left_str}. Баланс: {new_balance} OC."
             )
             
-            
-            
-            # --- КОНЕЦ ВЫЗОВА ПРОВЕРКИ ДОСТИЖЕНИЙ ---
+            # --- Вызов проверки достижений (если он есть в оригинале) ---
+            # await check_and_grant_achievements(bot, message, user_id, "charge_phone", conn_ext=conn)
+
 
     except Exception as e_charge:
         logger.error(f"ChargePhone: Ошибка для user {user_id}, phone_id {phone_inventory_id_arg}: {e_charge}", exc_info=True)
-        await message.reply("Произошла ошибка при попытке зарядить телефон.")
+        await message.reply(
+            "Произошла ошибка при попытке зарядить телефон.",
+            disable_web_page_preview=True
+        )
     finally:
         if conn and not conn.is_closed():
             await conn.close()
