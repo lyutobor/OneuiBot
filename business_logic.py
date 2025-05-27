@@ -207,10 +207,24 @@ async def buy_business_command(message: Message, command: CommandObject, bot: Bo
             )
 
             if new_business_id:
+                # >>> НАЧАЛО ИЗМЕНЕНИЙ <<<
+                # Гарантируем существование банка 0-го уровня
+                await database.create_or_update_user_bank( #
+                    user_id,
+                    chat_id,
+                    actual_username,
+                    actual_full_name,
+                    actual_chat_title,
+                    current_balance_change=0, # Не меняем баланс банка, только обеспечиваем его наличие
+                    new_bank_level=0 # Создаем банк 0-го уровня, если его нет
+                )
+                logger.info(f"Ensured bank (level 0) exists for user {user_id} in chat {chat_id} after business purchase.")
+                # >>> КОНЕЦ ИЗМЕНЕНИЙ <<<
+
                 await message.reply(
                     f"🎉 Поздравляю, {user_link}! Вы успешно приобрели бизнес <b>{html.escape(business_display_name)}</b> "
                     f"за <code>{purchase_price:,}</code> OneCoin. Ваш новый баланс: <code>{new_balance:,}</code> OneCoin.\n"
-                    f"ID вашего нового бизнеса: <code>{new_business_id}</code>. Он уже начал приносить доход!"
+                    f"ID вашего нового бизнеса: <code>{new_business_id}</code>. Он уже начал приносить доход (ваш банк готов к поступлениям)!"
                 )
                 logger.info(f"User {user_id} bought business {business_key} (ID: {new_business_id}) in chat {chat_id} for {purchase_price} OneCoin.")
                 await send_telegram_log(bot,
