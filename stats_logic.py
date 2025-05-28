@@ -23,7 +23,6 @@ stats_router = Router()
 PHONE_MODELS_STD_DICT_STATS = {p["key"]: p for p in PHONE_MODELS_STANDARD_LIST}
 EXCLUSIVE_PHONE_MODELS_DICT_STATS = {p["key"]: p for p in EXCLUSIVE_PHONE_MODELS_LIST}
 
-# Вспомогательная функция для форматирования времени (из предыдущего ответа)
 def _format_time_delta(seconds: float) -> str:
     days, remainder = divmod(seconds, 86400)
     hours, remainder = divmod(remainder, 3600)
@@ -43,7 +42,6 @@ async def _get_formatted_stats(target_user_id: int, target_chat_id: int, bot_ins
 
     response_lines = [f"📊 <b>Сводка оперативника {target_user_link}</b>"]
 
-    # --- Титул (избранное достижение) ---
     selected_achievement_key = await database.get_user_selected_achievement(target_user_id)
     title_display = "<i>Титул не выбран</i>"
     if selected_achievement_key:
@@ -56,16 +54,13 @@ async def _get_formatted_stats(target_user_id: int, target_chat_id: int, bot_ins
 
     response_lines.append("═══════⚔️ <b>Боеготовность</b> ⚔️═══════")
 
-    # --- OneUI Версии ---
     current_version_chat = await database.get_user_version(target_user_id, target_chat_id)
     max_version_data = await database.get_user_max_version_global_with_chat_info(target_user_id)
     max_v_global_display = "N/A"
     if max_version_data and max_version_data.get('version') is not None:
         max_v_global_display = f"{float(max_version_data['version']):.1f}"
-
     response_lines.append(f"💻 OneUI (локально): <code>{current_version_chat:.1f}</code> | Макс. Глобально: <code>{max_v_global_display}</code>")
 
-    # --- Ежедневный стрик ---
     streak_data = await database.get_user_daily_streak(target_user_id, target_chat_id)
     current_streak_val = 0
     streak_bonus_info = ""
@@ -74,17 +69,14 @@ async def _get_formatted_stats(target_user_id: int, target_chat_id: int, bot_ins
         last_check_date_db = streak_data.get('last_streak_check_date')
         if last_check_date_db and (last_check_date_db == today_local_date or last_check_date_db == (today_local_date - timedelta(days=1))):
             current_streak_val = streak_data.get('current_streak', 0)
-    
     if current_streak_val > 0:
          next_goal_info = next((goal for goal in Config.DAILY_STREAKS_CONFIG if goal['target_days'] > current_streak_val), None)
          if next_goal_info:
              streak_bonus_info = f"(Цель: {next_goal_info['name']} - еще {next_goal_info['target_days'] - current_streak_val} д.)"
          elif Config.DAILY_STREAKS_CONFIG and current_streak_val >= Config.DAILY_STREAKS_CONFIG[-1]['target_days']:
               streak_bonus_info = f"({Config.DAILY_STREAKS_CONFIG[-1]['name']}!)"
-
     response_lines.append(f"🔥 Стрик Активности: <b>{current_streak_val}</b> д. {streak_bonus_info}")
 
-    # --- OneCoin и Банк ---
     onecoins_chat = await database.get_user_onecoins(target_user_id, target_chat_id)
     response_lines.append(f"💰 Боевой Фонд (OneCoin): <code>{onecoins_chat:,}</code>")
 
@@ -101,10 +93,8 @@ async def _get_formatted_stats(target_user_id: int, target_chat_id: int, bot_ins
         if num >= 1_000_000: return f"{num / 1_000_000:.1f}M"
         if num >= 1_000: return f"{num / 1_000:.1f}K"
         return str(num)
-
     response_lines.append(f"🛡️ Защита Банка: \"{bank_name_display}\" (Ур. {bank_level}) - <code>{format_large_number(bank_balance)}</code>/<code>{format_large_number(bank_max_capacity)}</code> OC ({bank_fill_percentage:.0f}%)")
 
-    # --- Арсенал (Телефоны) ---
     response_lines.append("═══════🛠️ <b>Арсенал</b> 🛠️═══════")
     user_active_phones = await database.get_user_phones(target_user_id, active_only=True)
     active_phones_count = len(user_active_phones)
@@ -124,7 +114,6 @@ async def _get_formatted_stats(target_user_id: int, target_chat_id: int, bot_ins
                 phone_name_display = html.escape(phone_data_json['display_name_override'])
 
             contraband_icon = "🥷 " if is_contraband else ""
-            
             current_memory_gb = phone_db.get('current_memory_gb')
             if current_memory_gb is None and phone_static_info_lookup:
                 memory_str_static = phone_static_info_lookup.get('memory', '0').upper()
@@ -133,12 +122,10 @@ async def _get_formatted_stats(target_user_id: int, target_chat_id: int, bot_ins
             current_memory_display = f"{current_memory_gb}GB" if isinstance(current_memory_gb, int) else "N/A"
             if isinstance(current_memory_gb, int) and current_memory_gb >= 1024 and current_memory_gb % 1024 == 0:
                  current_memory_display = f"{current_memory_gb // 1024}TB"
-
             response_lines.append(f"  {idx+1}. {contraband_icon}<b>{phone_name_display}</b> ({current_memory_display}) (ID: <code>{phone_inventory_id}</code>)")
 
             properties_parts = []
             status_parts = []
-
             if is_contraband:
                 if phone_data_json.get("custom_bonus_description"):
                     properties_parts.append(html.escape(phone_data_json['custom_bonus_description']))
@@ -220,7 +207,7 @@ async def _get_formatted_stats(target_user_id: int, target_chat_id: int, bot_ins
         response_lines.append("  <i>Производственные мощности отсутствуют.</i>")
 
     response_lines.append("═══════🤝 <b>Альянс</b> 🤝═══════")
-    family_membership = await database.get_user_family_membership(target_user_id) # Исправлено: определение family_membership
+    family_membership = await database.get_user_family_membership(target_user_id)
     if family_membership:
         family_name_ally = html.escape(family_membership.get('family_name', 'Неизвестный клан'))
         role_ally = "👑 Лидер" if family_membership.get('leader_id') == target_user_id else "Боец"
@@ -231,7 +218,7 @@ async def _get_formatted_stats(target_user_id: int, target_chat_id: int, bot_ins
         response_lines.append("👪 Состоит: Вне клана")
     
     response_lines.append("--------------------")
-    response_lines.append("<small><i>Для детальной информации используйте профильные команды.</i></small>")
+    response_lines.append("<i>Для детальной информации используйте профильные команды.</i>") # Исправлено <small> на <i>
 
     return "\n".join(response_lines)
 
