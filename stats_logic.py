@@ -96,7 +96,6 @@ async def _get_formatted_stats(target_user_id: int, target_chat_id: int, bot_ins
     bank_max_capacity = bank_info_static['max_capacity'] if bank_info_static else 0
     bank_fill_percentage = (bank_balance / bank_max_capacity * 100) if bank_max_capacity > 0 else 0
     
-    # Форматирование баланса банка для краткости (например, 3.5M / 4.0M)
     def format_large_number(num):
         if num >= 1_000_000_000: return f"{num / 1_000_000_000:.1f}B"
         if num >= 1_000_000: return f"{num / 1_000_000:.1f}M"
@@ -137,19 +136,15 @@ async def _get_formatted_stats(target_user_id: int, target_chat_id: int, bot_ins
 
             response_lines.append(f"  {idx+1}. {contraband_icon}<b>{phone_name_display}</b> ({current_memory_display}) (ID: <code>{phone_inventory_id}</code>)")
 
-            # Свойства и Статус
             properties_parts = []
             status_parts = []
 
-            # Свойства (для эксклюзивов/ЧР)
             if is_contraband:
                 if phone_data_json.get("custom_bonus_description"):
                     properties_parts.append(html.escape(phone_data_json['custom_bonus_description']))
-                elif phone_data_json.get("bm_description"): # Если нет bonus_desc, но есть bm_desc
-                    properties_parts.append(html.escape(phone_data_json['bm_description'].split('.')[0])) # Кратко
+                elif phone_data_json.get("bm_description"):
+                    properties_parts.append(html.escape(phone_data_json['bm_description'].split('.')[0]))
 
-            # Статус
-            # Батарея
             last_charged_utc = phone_db.get('last_charged_utc')
             battery_dead_after_utc = phone_db.get('battery_dead_after_utc')
             battery_break_after_utc = phone_db.get('battery_break_after_utc')
@@ -170,20 +165,17 @@ async def _get_formatted_stats(target_user_id: int, target_chat_id: int, bot_ins
                             battery_str = "‼️АКБ Сломан"
             status_parts.append(battery_str)
 
-            # Поломка (не батарея)
             if phone_db.get('is_broken'):
                 broken_comp_key = phone_db.get('broken_component_key')
                 broken_comp_info = PHONE_COMPONENTS.get(broken_comp_key, {})
                 if not (broken_comp_info.get('component_type') == 'battery' and "Сломан" in battery_str):
                     status_parts.append(f"⚠️Сломан: {html.escape(broken_comp_info.get('name', '?'))}")
             
-            # Чехол
             equipped_case_key = phone_db.get('equipped_case_key')
             if equipped_case_key:
                 case_name = PHONE_CASES.get(equipped_case_key, {}).get('name', 'Чехол')
-                status_parts.append(f"🛡️{html.escape(case_name.split(' ')[0])}") # Кратко
+                status_parts.append(f"🛡️{html.escape(case_name.split(' ')[0])}")
             
-            # Страховка
             insurance_until = phone_db.get('insurance_active_until')
             if isinstance(insurance_until, datetime):
                 if insurance_until.tzinfo is None: insurance_until = insurance_until.replace(tzinfo=dt_timezone.utc)
@@ -194,11 +186,9 @@ async def _get_formatted_stats(target_user_id: int, target_chat_id: int, bot_ins
                  response_lines.append(f"    └ <i>Свойства: {'; '.join(properties_parts)}</i>")
             if status_parts:
                  response_lines.append(f"    └ <i>Статус: {', '.join(status_parts)}.</i>")
-
     else:
         response_lines.append("  <i>Арсенал пуст.</i>")
 
-    # --- Производство (Бизнесы) ---
     response_lines.append("═══════🏭 <b>Производство</b> 🏭═══════")
     user_businesses_chat = await database.get_user_businesses(target_user_id, target_chat_id)
     businesses_count_chat = len(user_businesses_chat)
@@ -229,9 +219,9 @@ async def _get_formatted_stats(target_user_id: int, target_chat_id: int, bot_ins
     else:
         response_lines.append("  <i>Производственные мощности отсутствуют.</i>")
 
-    # --- Альянс (Семья) ---
     response_lines.append("═══════🤝 <b>Альянс</b> 🤝═══════")
-    if family_membership: # Используем данные, полученные ранее
+    family_membership = await database.get_user_family_membership(target_user_id) # Исправлено: определение family_membership
+    if family_membership:
         family_name_ally = html.escape(family_membership.get('family_name', 'Неизвестный клан'))
         role_ally = "👑 Лидер" if family_membership.get('leader_id') == target_user_id else "Боец"
         family_members_ally = await database.get_family_members(family_membership['family_id'])
@@ -242,7 +232,6 @@ async def _get_formatted_stats(target_user_id: int, target_chat_id: int, bot_ins
     
     response_lines.append("--------------------")
     response_lines.append("<small><i>Для детальной информации используйте профильные команды.</i></small>")
-
 
     return "\n".join(response_lines)
 
