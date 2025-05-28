@@ -42,9 +42,9 @@ class BlackMarketPurchaseStates(StatesGroup):
 
 # --- Вспомогательные функции (остаются, как были, если не указано иное) ---
 
-async def check_black_market_access(user_id: int) -> Tuple[bool, str]:
-    # ... (код без изменений)
-    streak_data = await database.get_user_daily_streak(user_id)
+async def check_black_market_access(user_id: int, chat_id: int) -> Tuple[bool, str]: # <--- КЛЮЧЕВОЕ ИЗМЕНЕНИЕ ЗДЕСЬ
+    # Теперь chat_id доступен внутри этой функции как параметр
+    streak_data = await database.get_user_daily_streak(user_id, chat_id) # Теперь этот вызов корректен
     current_streak = 0
     if streak_data and streak_data.get('last_streak_check_date'):
         today_local_date = datetime.now(pytz_timezone(Config.TIMEZONE)).date()
@@ -345,17 +345,22 @@ async def _generate_personal_bm_offers_for_user(user_id: int, conn_ext: Optional
 # --- ОБНОВЛЕННЫЕ КОМАНДЫ /blackmarket и /buybm ---
 
 @black_market_router.message(Command(*Config.BLACKMARKET_COMMAND_ALIASES, ignore_case=True))
-async def cmd_blackmarket_show(message: Message, bot: Bot): # bot нужен для send_telegram_log
+async def cmd_blackmarket_show(message: Message, bot: Bot):
     if not message.from_user:
-        await message.reply("🥷 Не могу распознать, кто ты, чужак.")
+        await message.reply("🥷 Не могу распознать, кто ты, чужак.", disable_web_page_preview=True)
         return
 
     user_id = message.from_user.id
+    # Получаем chat_id из объекта message
+    chat_id_for_check = message.chat.id  # <--- Определяем chat_id здесь
+
     user_link = get_user_mention_html(user_id, message.from_user.full_name, message.from_user.username)
 
-    can_access, access_denied_message = await check_black_market_access(user_id)
+    # ИСПРАВЛЯЕМ ВЫЗОВ ЗДЕСЬ: передаем chat_id_for_check
+    can_access, access_denied_message = await check_black_market_access(user_id, chat_id_for_check) 
+    
     if not can_access:
-        await message.reply(access_denied_message, parse_mode="HTML")
+        await message.reply(access_denied_message, parse_mode="HTML", disable_web_page_preview=True)
         return
 
     conn = None
@@ -541,18 +546,19 @@ async def cmd_blackmarket_show(message: Message, bot: Bot): # bot нужен д�
             await conn.close()
 
 @black_market_router.message(Command(*Config.BLACKMARKET_BUY_SLOT_ALIASES, ignore_case=True))
-async def cmd_buy_bm_slot_start(message: Message, command: CommandObject, state: FSMContext, bot: Bot): # bot нужен для лога
+async def cmd_buy_bm_slot_start(message: Message, command: CommandObject, state: FSMContext, bot: Bot):
     if not message.from_user:
-        await message.reply("🥷 Я не знаю, кто ты. Представься сначала.")
+        await message.reply("🥷 Я не знаю, кто ты. Представься сначала.", disable_web_page_preview=True)
         return
 
     user_id = message.from_user.id
-    chat_id = message.chat.id 
+    chat_id_for_check_and_buy = message.chat.id # <--- Определяем chat_id здесь
     user_link = get_user_mention_html(user_id, message.from_user.full_name, message.from_user.username)
 
-    can_access, access_denied_message = await check_black_market_access(user_id)
+    # ИСПРАВЛЯЕМ ВЫЗОВ ЗДЕСЬ: передаем chat_id_for_check_and_buy
+    can_access, access_denied_message = await check_black_market_access(user_id, chat_id_for_check_and_buy)
     if not can_access:
-        await message.reply(access_denied_message, parse_mode="HTML")
+        await message.reply(access_denied_message, parse_mode="HTML", disable_web_page_preview=True)
         return
 
     args = command.args
