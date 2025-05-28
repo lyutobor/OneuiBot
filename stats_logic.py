@@ -52,7 +52,7 @@ async def _get_formatted_stats(target_user_id: int, target_chat_id: int, bot_ins
             title_display = "<i>Титул: Неизвестный</i>"
     response_lines.append(title_display)
 
-    response_lines.append("\n════⚔️ <b>Боеготовность</b> ⚔️════")
+    response_lines.append("\n════⚔️ <b>Боеготовность</b> ⚔️════") #
 
     current_version_chat = await database.get_user_version(target_user_id, target_chat_id)
     max_version_data = await database.get_user_max_version_global_with_chat_info(target_user_id)
@@ -95,7 +95,7 @@ async def _get_formatted_stats(target_user_id: int, target_chat_id: int, bot_ins
         return str(num)
     response_lines.append(f"🛡️ Защита Банка: \"{bank_name_display}\" (Ур. {bank_level}) - <code>{format_large_number(bank_balance)}</code>/<code>{format_large_number(bank_max_capacity)}</code> OC ({bank_fill_percentage:.0f}%)")
 
-    response_lines.append("\n════🛠️ <b>Арсенал</b> 🛠️════")
+    response_lines.append("\n════🛠️ <b>Арсенал</b> 🛠️════") #
     user_active_phones = await database.get_user_phones(target_user_id, active_only=True)
     active_phones_count = len(user_active_phones)
     response_lines.append(f"📱 Телефоны ({active_phones_count}/{Config.MAX_PHONES_PER_USER}):")
@@ -155,7 +155,7 @@ async def _get_formatted_stats(target_user_id: int, target_chat_id: int, bot_ins
             if phone_db.get('is_broken'):
                 broken_comp_key = phone_db.get('broken_component_key')
                 broken_comp_info = PHONE_COMPONENTS.get(broken_comp_key, {})
-                if not (broken_comp_info.get('component_type') == 'battery' and "Сломан" in battery_str):
+                if not (broken_comp_info.get('component_type') == 'battery' and "Сломан" in battery_str): #
                     status_parts.append(f"⚠️Сломан: {html.escape(broken_comp_info.get('name', '?'))}")
             
             equipped_case_key = phone_db.get('equipped_case_key')
@@ -176,7 +176,7 @@ async def _get_formatted_stats(target_user_id: int, target_chat_id: int, bot_ins
     else:
         response_lines.append("  <i>Арсенал пуст.</i>")
 
-    response_lines.append("\n════🏭 <b>Производство</b> 🏭════")
+    response_lines.append("\n════🏭 <b>Производство</b> 🏭════") #
     user_businesses_chat = await database.get_user_businesses(target_user_id, target_chat_id)
     businesses_count_chat = len(user_businesses_chat)
     response_lines.append(f"🏢 Бизнес-мощности (в этом секторе): {businesses_count_chat}/{Config.BUSINESS_MAX_PER_USER_PER_CHAT}")
@@ -206,7 +206,7 @@ async def _get_formatted_stats(target_user_id: int, target_chat_id: int, bot_ins
     else:
         response_lines.append("  <i>Производственные мощности отсутствуют.</i>")
 
-    response_lines.append("\n════🤝 <b>Альянс</b> 🤝════")
+    response_lines.append("\n════🤝 <b>Альянс</b> 🤝════") #
     family_membership = await database.get_user_family_membership(target_user_id)
     if family_membership:
         family_name_ally = html.escape(family_membership.get('family_name', 'Неизвестный клан'))
@@ -217,9 +217,36 @@ async def _get_formatted_stats(target_user_id: int, target_chat_id: int, bot_ins
     else:
         response_lines.append("👪 Состоит: Вне клана")
     
-    
+    response_lines.append("\n--------------------") #
+    response_lines.append("<i>Для детальной информации используйте профильные команды.</i>") #
 
     return "\n".join(response_lines)
+
+
+@stats_router.message(Command("mystats", "моястата", "моястатистика", "stata", "профиль", "profile", ignore_case=True))
+async def cmd_my_stats_explicit(message: Message, bot: Bot):
+    if not message.from_user:
+        await message.reply("Не удалось определить пользователя.", disable_web_page_preview=True)
+        return
+
+    user_id = message.from_user.id
+    chat_id = message.chat.id
+    
+    # --- ОТЛАДОЧНОЕ ЛОГИРОВАНИЕ ---
+    logger.info(
+        f"/mystats: Вызвал user_id={user_id}, username='{message.from_user.username}', "
+        f"full_name='{message.from_user.full_name}'. Chat_id={chat_id}."
+    )
+    # --- КОНЕЦ ОТЛАДОЧНОГО ЛОГИРОВАНИЯ ---
+
+    try:
+        stats_message = await _get_formatted_stats(user_id, chat_id, bot, for_self=True)
+        await message.reply(stats_message, parse_mode="HTML", disable_web_page_preview=True)
+    except Exception as e:
+        logger.error(f"Error in /mystats (explicit) for user {user_id} in chat {chat_id}: {e}", exc_info=True)
+        await message.reply("Произошла ошибка при получении вашей статистики.", disable_web_page_preview=True)
+        user_link_for_log = get_user_mention_html(user_id, message.from_user.full_name, message.from_user.username)
+        await send_telegram_log(bot, f"🔴 Ошибка в /mystats (explicit) для {user_link_for_log}: <pre>{html.escape(str(e))}</pre>")
 
 
 @stats_router.message(Command("стата", "статистика", ignore_case=True))
@@ -232,74 +259,15 @@ async def cmd_general_stats_handler(message: Message, command: CommandObject, bo
     calling_user_id = message.from_user.id # ID того, кто написал /стата
     current_chat_id = message.chat.id
 
+    # --- ОТЛАДОЧНОЕ ЛОГИРОВАНИЕ ---
+    logger.info(
+        f"/стата: Вызвал user_id={calling_user_id}, username='{message.from_user.username}', "
+        f"full_name='{message.from_user.full_name}'. Chat_id={current_chat_id}. "
+        f"Args: '{command.args}'. Is reply: {bool(message.reply_to_message)}"
+    )
+    # --- КОНЕЦ ОТЛАДОЧНОГО ЛОГИРОВАНИЯ ---
+
     # 2. Проверяем, есть ли аргументы у команды или это ответ на сообщение
-    has_args = bool(command.args)
-    is_reply = bool(message.reply_to_message and message.reply_to_message.from_user and not message.reply_to_message.from_user.is_bot)
-
-    user_to_display_id: Optional[int] = None
-    user_to_display_name: Optional[str] = None
-    user_to_display_username: Optional[str] = None
-    display_for_self = True # По умолчанию, предполагаем, что пользователь смотрит свою стату
-
-    # 3. Логика определения ID пользователя, чью статистику нужно показать
-    if has_args or is_reply:
-        # Если есть аргументы (например, /стата @username) или это ответ на сообщение,
-        # то пытаемся определить целевого пользователя с помощью resolve_target_user
-        target_user_data = await resolve_target_user(message, command, bot)
-        if target_user_data:
-            user_to_display_id, user_to_display_name, user_to_display_username = target_user_data
-            display_for_self = (user_to_display_id == calling_user_id)
-            # Проверка, не является ли целевой пользователь ботом
-            if not display_for_self: # Только если смотрим не свою стату
-                try:
-                    target_chat_obj = await bot.get_chat(user_to_display_id)
-                    if hasattr(target_chat_obj, 'is_bot') and target_chat_obj.is_bot:
-                        await message.reply("Нельзя посмотреть статистику бота.", disable_web_page_preview=True)
-                        return
-                except Exception:
-                    pass # Если не удалось проверить, просто продолжаем
-        else:
-            # Если resolve_target_user не смог определить пользователя (например, юзер не найден)
-            if is_reply and not has_args: # Конкретное сообщение об ошибке для ответа на сообщение
-                await message.reply("Не удалось определить пользователя по вашему ответу. Возможно, вы ответили на сообщение бота или системное сообщение.", disable_web_page_preview=True)
-            # В остальных случаях (неудачный поиск по аргументу) resolve_target_user уже отправил сообщение
-            return # Важно: выходим, если не удалось определить цель
-    else:
-        # Если НЕТ аргументов И это НЕ ответ на сообщение (т.е. просто /стата)
-        # Статистика показывается для того, кто вызвал команду
-        user_to_display_id = calling_user_id
-        user_to_display_name = message.from_user.full_name
-        user_to_display_username = message.from_user.username
-        display_for_self = True
-
-    # 4. Проверка, что ID пользователя для отображения был определен
-    if user_to_display_id is None:
-        # Эта проверка сработает, если что-то пошло не так и ID не установился.
-        # В случае с /стата без аргументов, user_to_display_id должен быть calling_user_id.
-        await message.reply("Не удалось определить пользователя для отображения статистики. (user_to_display_id is None)", disable_web_page_preview=True)
-        return
-
-    # 5. Получение и отправка статистики
-    try:
-        stats_message_content = await _get_formatted_stats(user_to_display_id, current_chat_id, bot, for_self=display_for_self)
-        await message.reply(stats_message_content, parse_mode="HTML", disable_web_page_preview=True)
-    except Exception as e:
-        logger.error(f"Error in /стата (general_stats_handler) for target {user_to_display_id} by {calling_user_id}: {e}", exc_info=True)
-        target_user_link_log = get_user_mention_html(user_to_display_id, user_to_display_name, user_to_display_username)
-        await message.reply(f"Произошла ошибка при получении статистики для {target_user_link_log}.", parse_mode="HTML", disable_web_page_preview=True)
-        calling_user_link_log = get_user_mention_html(calling_user_id, message.from_user.full_name, message.from_user.username)
-        await send_telegram_log(bot, f"🔴 Ошибка в /стата (general) для {target_user_link_log} (запросил {calling_user_link_log}): <pre>{html.escape(str(e))}</pre>")
-
-
-@stats_router.message(Command("стата", "статистика", ignore_case=True))
-async def cmd_general_stats_handler(message: Message, command: CommandObject, bot: Bot):
-    if not message.from_user:
-        await message.reply("Не удалось определить пользователя.", disable_web_page_preview=True)
-        return
-
-    calling_user_id = message.from_user.id
-    current_chat_id = message.chat.id
-
     has_args = bool(command.args)
     is_reply = bool(message.reply_to_message and message.reply_to_message.from_user and not message.reply_to_message.from_user.is_bot)
 
@@ -308,11 +276,14 @@ async def cmd_general_stats_handler(message: Message, command: CommandObject, bo
     user_to_display_username: Optional[str] = None
     display_for_self = True
 
+    # 3. Логика определения ID пользователя, чью статистику нужно показать
     if has_args or is_reply:
+        logger.info(f"/стата: Ветка 'if has_args or is_reply'. has_args={has_args}, is_reply={is_reply}")
         target_user_data = await resolve_target_user(message, command, bot)
         if target_user_data:
             user_to_display_id, user_to_display_name, user_to_display_username = target_user_data
             display_for_self = (user_to_display_id == calling_user_id)
+            logger.info(f"/стата: resolve_target_user вернул ID={user_to_display_id}, Name='{user_to_display_name}'. display_for_self={display_for_self}")
             if not display_for_self:
                 try:
                     target_chat_obj = await bot.get_chat(user_to_display_id)
@@ -321,26 +292,47 @@ async def cmd_general_stats_handler(message: Message, command: CommandObject, bo
                         return
                 except Exception: pass
         else:
+            logger.warning(f"/стата: resolve_target_user не смог определить цель. Args: '{command.args}', Is reply: {is_reply}.")
             if is_reply and not has_args:
                 await message.reply("Не удалось определить пользователя по вашему ответу. Возможно, вы ответили на сообщение бота или системное сообщение.", disable_web_page_preview=True)
             return
     else:
+        logger.info(f"/стата: Ветка 'else' (нет аргументов/ответа). Установка user_to_display_id = calling_user_id ({calling_user_id}).")
         user_to_display_id = calling_user_id
         user_to_display_name = message.from_user.full_name
         user_to_display_username = message.from_user.username
         display_for_self = True
 
+    # 4. Проверка, что ID пользователя для отображения был определен
     if user_to_display_id is None:
-        await message.reply("Не удалось определить пользователя для отображения статистики.", disable_web_page_preview=True)
+        logger.error(
+            f"/стата: КРИТИЧЕСКАЯ ОШИБКА! user_to_display_id остался None. "
+            f"calling_user_id={calling_user_id}, has_args={has_args}, is_reply={is_reply}"
+        )
+        await message.reply("Не удалось определить пользователя для отображения статистики. (user_to_display_id is None)", disable_web_page_preview=True)
         return
 
+    # --- ОТЛАДОЧНОЕ ЛОГИРОВАНИЕ ПЕРЕД ВЫЗОВОМ _get_formatted_stats ---
+    logger.info(
+        f"/стата: Вызов _get_formatted_stats с: target_user_id={user_to_display_id}, "
+        f"target_chat_id={current_chat_id}, for_self={display_for_self}. "
+        f"(Изначально вызвал: ID={calling_user_id}, Name='{message.from_user.full_name}')"
+    )
+    # --- КОНЕЦ ОТЛАДОЧНОГО ЛОГИРОВАНИЯ ---
+
+    # 5. Получение и отправка статистики
     try:
         stats_message_content = await _get_formatted_stats(user_to_display_id, current_chat_id, bot, for_self=display_for_self)
         await message.reply(stats_message_content, parse_mode="HTML", disable_web_page_preview=True)
     except Exception as e:
         logger.error(f"Error in /стата (general_stats_handler) for target {user_to_display_id} by {calling_user_id}: {e}", exc_info=True)
-        target_user_link_log = get_user_mention_html(user_to_display_id, user_to_display_name, user_to_display_username)
+        # Имя и юзернейм для сообщения об ошибке берем из определенных выше переменных
+        name_err_disp = user_to_display_name if user_to_display_name else message.from_user.full_name
+        uname_err_disp = user_to_display_username if user_to_display_username else message.from_user.username
+        
+        target_user_link_log = get_user_mention_html(user_to_display_id, name_err_disp, uname_err_disp)
         await message.reply(f"Произошла ошибка при получении статистики для {target_user_link_log}.", parse_mode="HTML", disable_web_page_preview=True)
+        
         calling_user_link_log = get_user_mention_html(calling_user_id, message.from_user.full_name, message.from_user.username)
         await send_telegram_log(bot, f"🔴 Ошибка в /стата (general) для {target_user_link_log} (запросил {calling_user_link_log}): <pre>{html.escape(str(e))}</pre>")
 
@@ -350,16 +342,28 @@ async def cmd_user_stats_explicit(message: Message, command: CommandObject, bot:
     if not message.from_user:
         await message.reply("Не удалось определить, кто вызвал команду.", disable_web_page_preview=True)
         return
+    
+    # --- ОТЛАДОЧНОЕ ЛОГИРОВАНИЕ ---
+    logger.info(
+        f"/userstats: Вызвал user_id={message.from_user.id}, username='{message.from_user.username}'. "
+        f"Args: '{command.args}'. Is reply: {bool(message.reply_to_message)}"
+    )
+    # --- КОНЕЦ ОТЛАДОЧНОГО ЛОГИРОВАНИЯ ---
 
     target_user_data = await resolve_target_user(message, command, bot)
 
     if not target_user_data:
-        if not command.args and not message.reply_to_message:
+        if not command.args and not message.reply_to_message: # Сообщение об ошибке, если не указана цель
             await message.reply("Укажите пользователя (ID, @username или ответом на сообщение), чью статистику вы хотите посмотреть.", disable_web_page_preview=True)
+        # Если resolve_target_user не нашел цель, он уже отправил сообщение.
         return
 
     target_user_id, target_full_name, target_username = target_user_data
     current_chat_id = message.chat.id
+
+    # --- ОТЛАДОЧНОЕ ЛОГИРОВАНИЕ ---
+    logger.info(f"/userstats: Цель определена как ID={target_user_id}, Name='{target_full_name}'.")
+    # --- КОНЕЦ ОТЛАДОЧНОГО ЛОГИРОВАНИЯ ---
 
     try:
         target_chat_obj = await bot.get_chat(target_user_id)
