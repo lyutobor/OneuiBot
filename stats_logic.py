@@ -217,8 +217,8 @@ async def _get_formatted_stats(target_user_id: int, target_chat_id: int, bot_ins
     else:
         response_lines.append("👪 Состоит: Вне клана")
     
-    response_lines.append("\n--------------------") #
-    response_lines.append("<i>Для детальной информации используйте профильные команды.</i>") #
+    
+    
 
     return "\n".join(response_lines)
 
