@@ -2079,13 +2079,8 @@ async def cmd_myphones(message: Message, bot: Bot): # bot остается, ес
             response_parts.append(phone_line) # ОДНО добавление строки телефона в список
         
         response_parts.append("\n--------------------")
-        response_parts.append("Чтобы надеть чехол: /equipcase ID_телефона ID_чехла_в_инвентаре")
-        response_parts.append("Чтобы снять чехол: /removecase ID_телефона")
-        response_parts.append("Чтобы зарядить: /chargephone ID_телефона")
-        response_parts.append("Чтобы улучшить память: /upgradememory ID_телефона")
-        response_parts.append(f"Чтобы застраховать/продлить: /insurephone ID_телефона (цена: {getattr(Config, 'PHONE_INSURANCE_COST', 50)} OC)")
-        response_parts.append("Чтобы продать телефон: /sellphone ID_телефона")
-        response_parts.append("Чтобы продать предмет из инвентаря: /sellitem ID_предмета [количество]")
+        response_parts.append("🔧 Для просмотра всех команд управления телефоном используйте: <code>/help телефон</code>")
+        
 
     except Exception as e:
         logger.error(f"MyPhones: Ошибка для user {user_id}: {e}", exc_info=True)
