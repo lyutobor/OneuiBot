@@ -1492,9 +1492,6 @@ async def process_daily_business_income_and_events(bot: Bot):
         conn = await database.get_connection() # Получаем одно соединение для всей операции
         
         # Шаг 1: Собрать все активные бизнесы и их владельцев
-        # Поскольку у нас нет функции get_all_active_businesses, нам придется получить все записи
-        # и затем отфильтровать по is_active=TRUE и сгруппировать по пользователям и чатам.
-        # Это может быть неоптимально для ОЧЕНЬ большого количества бизнесов, но для разумного количества сойдет.
         raw_businesses = await conn.fetch("SELECT * FROM user_businesses WHERE is_active = TRUE")
 
         # Группируем бизнесы по user_id и chat_id для удобства обработки
@@ -1522,7 +1519,7 @@ async def process_daily_business_income_and_events(bot: Bot):
 
         # Шаг 2: Обработка каждого бизнеса
         for user_id, chats_data in all_users_with_businesses.items():
-            user_full_name, user_username = await database.fetch_user_display_data(bot, user_id)
+            user_full_name, user_username = await database.fetch_user_display_data(bot, user_id) # Используем database.fetch_user_display_data
             user_link = get_user_mention_html(user_id, user_full_name, user_username)
 
             for chat_id, businesses in chats_data.items():
@@ -1531,15 +1528,13 @@ async def process_daily_business_income_and_events(bot: Bot):
                 # Получаем банк пользователя для этого чата (создадим, если нет)
                 user_bank = await database.get_user_bank(user_id, chat_id, conn_ext=conn)
                 bank_level = user_bank['bank_level'] if user_bank else 0
-                bank_static_info = BANK_DATA.get(bank_level, BANK_DATA.get(0)) # Уровень 0 или самый низкий если что
+                bank_static_info = BANK_DATA.get(bank_level, BANK_DATA.get(0)) 
                 bank_max_capacity = bank_static_info['max_capacity']
 
-                # Обновим user/chat инфо в user_oneui, если нужно (для актуализации)
-                # Это уже делает OneUI команда, но на всякий случай для других команд
                 await database.update_user_version(user_id, chat_id,
-                                                   (await database.get_user_version(user_id, chat_id)), # Текущая версия
+                                                   (await database.get_user_version(user_id, chat_id)), 
                                                    username=user_username, full_name=user_full_name, chat_title=chat_title,
-                                                   force_update_last_used=False # Не меняем last_used, это фоновая задача
+                                                   force_update_last_used=False, conn_ext=conn # Добавил conn_ext
                 )
                 await database.create_or_update_user_bank(user_id, chat_id, user_username, user_full_name, chat_title, conn_ext=conn)
 
@@ -1565,32 +1560,22 @@ async def process_daily_business_income_and_events(bot: Bot):
                     max_staff_slots = level_info['max_staff_slots']
                     business_idx = _get_business_index(business_key)
 
-                    # --- Расчет дохода за прошедшее время ---
                     now_utc = datetime.now(dt_timezone.utc)
-                    # Если last_income_calculation_utc еще не сегодня (т.е. после последнего начисления/обновления)
-                    # то считаем доход с него до текущего момента (21:00)
                     hours_passed = (now_utc - last_income_calc_utc).total_seconds() / 3600
-                    hours_passed = max(0, min(24.0, hours_passed)) # Максимум 24 часа для ежедневного расчета
+                    hours_passed = max(0, min(24.0, hours_passed)) 
 
-                    # Если уже начисляли сегодня (или часы прошли незначительно), пропускаем
-                    if hours_passed < 1.0: # Меньше часа, вероятно, уже начислялось или только что обновили
+                    if hours_passed < 1.0: 
                         logger.debug(f"Business {business_id} for user {user_id}: hours_passed={hours_passed:.2f}, skipping income calculation for now.")
                         continue 
 
-                    # Расчет дохода от сотрудников
                     staff_income_percentage_per_unit = _calculate_staff_income_percentage(business_idx)
                     staff_income_bonus_per_hour = staff_hired_slots * (base_income_per_hour * staff_income_percentage_per_unit)
-                    
                     gross_income_per_hour = base_income_per_hour + staff_income_bonus_per_hour
                     
-                    # --- Обработка случайных событий ---
                     event_multiplier = 1.0
                     event_msg_to_user = None
-                    
-                    # Получаем установленные апгрейды для этого бизнеса
                     user_upgrades_for_biz = await database.get_business_upgrades(business_id, user_id, conn_ext=conn)
 
-                    # Вызываем функцию обработки события
                     event_multiplier, event_msg_to_user = await _process_business_event(
                         user_id, business_id, business_key, current_level, user_upgrades_for_biz,
                         base_income_per_hour, user_full_name, user_username, chat_title, chat_id, bot, conn_ext=conn
@@ -1600,39 +1585,30 @@ async def process_daily_business_income_and_events(bot: Bot):
                         all_event_messages.append({"user_id": user_id, "message": event_msg_to_user})
                         logger.info(f"Generated event message for user {user_id}, business {business_id}: {event_msg_to_user[:100]}...")
                     
-                    # --- ВЫЗОВ ПРОВЕРКИ ДОСТИЖЕНИЙ (для предотвращенных событий) ---
-                    # Важно: _process_business_event уже возвращает, был ли ивент предотвращен.
-                    # Если event_multiplier == 1.0, но event_msg_to_user есть (т.е. ивент пытался произойти, но был предотвращен),
-                    # то это повод для достижения "Провидец Апокалипсиса".
                     if event_multiplier == 1.0 and event_msg_to_user and "предотвращено" in event_msg_to_user:
                         await check_and_grant_achievements(
                             user_id,
-                            chat_id, # Важно: использовать chat_id из biz_data, а не message.chat.id
+                            chat_id, 
                             bot,
-                            business_event_prevented_just_now=True, # Флаг для первого предотвращения
-                            # business_events_prevented_total_count - нужно получать из БД
-                            business_events_prevented_total_count=1 # Заглушка
+                            business_event_prevented_just_now=True, 
+                            business_events_prevented_total_count=1 
                         )
-                    # --- КОНЕЦ ВЫЗОВА ПРОВЕРКИ ДОСТИЖЕНИЙ ---
                     
-                    effective_income_per_hour = gross_income_per_hour * (1 + event_multiplier - 1) # event_multiplier уже содержит 1 +/-, поэтому вычитаем 1
-                    effective_income_per_hour = max(0, effective_income_per_hour) # Доход не может быть отрицательным
+                    effective_income_per_hour = gross_income_per_hour * (1 + event_multiplier - 1) 
+                    effective_income_per_hour = max(0, effective_income_per_hour) 
 
-                    # --- Расчет налога ---
                     tax_rate = Config.BUSINESS_TAX_BASE_PERCENT
                     if business_idx >= Config.BUSINESS_TAX_FULL_STAFF_START_BUSINESS_INDEX and \
-                       staff_hired_slots == max_staff_slots and max_staff_slots > 0: # Проверяем, что слоты есть и они все заняты
+                       staff_hired_slots == max_staff_slots and max_staff_slots > 0: 
                         tax_rate = Config.BUSINESS_TAX_FULL_STAFF_PERCENT
                     
                     tax_amount_per_hour = effective_income_per_hour * tax_rate
                     net_income_per_hour = effective_income_per_hour - tax_amount_per_hour
-                    net_income_per_hour = max(0, net_income_per_hour) # Доход после налогов не может быть отрицательным
+                    net_income_per_hour = max(0, net_income_per_hour) 
 
-                    # --- Финальная сумма к начислению ---
                     income_to_deposit = int(net_income_per_hour * hours_passed)
-                    income_to_deposit = max(0, income_to_deposit) # Убедимся, что не начисляем отрицательные значения
+                    income_to_deposit = max(0, income_to_deposit) 
 
-                    # --- Начисление в банк ---
                     current_bank_balance = user_bank['current_balance'] if user_bank else 0
                     current_bank_capacity = BANK_DATA.get(bank_level, BANK_DATA[0])['max_capacity']
 
@@ -1641,30 +1617,27 @@ async def process_daily_business_income_and_events(bot: Bot):
                         space_left = current_bank_capacity - current_bank_balance
                         deposited_amount = min(income_to_deposit, space_left)
                         
-                        # Обновляем банк
                         updated_bank_result = await database.create_or_update_user_bank(
                             user_id, chat_id, user_username, user_full_name, chat_title,
                             current_balance_change=deposited_amount, conn_ext=conn
                         )
                         if updated_bank_result:
-                            user_bank['current_balance'] = updated_bank_result['current_balance'] # Обновляем локальную копию
+                            user_bank['current_balance'] = updated_bank_result['current_balance'] 
                             logger.info(f"Deposited {deposited_amount} OC to bank for user {user_id} in chat {chat_id}.")
                         else:
                             logger.error(f"Failed to update bank balance for user {user_id} chat {chat_id}.")
                     else:
                         logger.info(f"Bank full for user {user_id} in chat {chat_id}. Income {income_to_deposit} OC lost.")
-                        # Оповестить пользователя о потерянном доходе можно здесь, если это критично.
-                        if income_to_deposit > 0: # Если был потенциальный доход, но он сгорел
+                        if income_to_deposit > 0: 
                             lost_income_message = (
-                                f"⚠️ {user_link}, ваш бизнес \"<b>{html.escape(business['name_override'] or business_static_info['name'])}</b>\" (ID: <code>{business_id}</code>) "
+                                f"⚠️ {user_link}, ваш бизнес \"<b>{html.escape(biz['name_override'] or business_static_info['name'])}</b>\" (ID: <code>{business_id}</code>) "
                                 f"сгенерировал <code>{income_to_deposit:,}</code> OneCoin, но ваш банк в чате \"{html.escape(chat_title)}\" "
                                 f"<b>переполнен</b> (<code>{current_bank_capacity:,}</code>/{current_bank_capacity:,} OC)! "
                                 f"Этот доход <b>сгорел</b>. Выведите средства командой <code>/withdrawbank</code> и улучшите банк <code>/upgradebank</code>!"
                             )
                             all_event_messages.append({"user_id": user_id, "message": lost_income_message})
-
-                    # --- Обновляем last_income_calculation_utc для бизнеса ---
-                    # Важно: Обновляем всегда на текущее время, независимо от того, был ли доход начислен в банк.
+                    
+                    # Обновляем last_income_calculation_utc для бизнеса
                     await database.update_user_business(
                         business_id, user_id, {'last_income_calculation_utc': now_utc}, conn_ext=conn
                     )
@@ -1672,11 +1645,21 @@ async def process_daily_business_income_and_events(bot: Bot):
                     total_income_processed += deposited_amount
                     total_businesses_processed += 1
                            
+                    # --- ИСПРАВЛЕННЫЙ БЛОК: ОБНОВЛЕНИЕ ОБЩЕГО ДОХОДА И ДОСТИЖЕНИЙ ---
+                    if deposited_amount > 0: # Используем deposited_amount, так как это то, что реально попало в банк
+                        current_total_income_for_user = await database.update_user_total_business_income(user_id, deposited_amount, conn_ext=conn)
+                        await check_and_grant_achievements(
+                            user_id,
+                            chat_id, # chat_id текущего бизнеса
+                            bot,
+                            business_total_income_earned_value=current_total_income_for_user # Передаем обновленный ОБЩИЙ доход пользователя
+                        )
+                    # --- КОНЕЦ ИСПРАВЛЕННОГО БЛОКА ---
 
         # Шаг 3: Отправка всех сгенерированных сообщений о событиях и потерянном доходе
         for msg_data in all_event_messages:
             try:
-                await bot.send_message(msg_data['user_id'], msg_data['message'], parse_mode="HTML")
+                await bot.send_message(msg_data['user_id'], msg_data['message'], parse_mode="HTML", disable_web_page_preview=True) # Добавлено disable_web_page_preview=True
             except Exception as e_send_msg:
                 logger.warning(f"Failed to send scheduled event message to user {msg_data['user_id']}: {e_send_msg}")
         
@@ -1685,17 +1668,6 @@ async def process_daily_business_income_and_events(bot: Bot):
             await send_telegram_log(bot, f"📊 Ежедневное начисление дохода с бизнесов завершено. Обработано <b>{total_businesses_processed}</b> бизнесов, зачислено <b>{total_income_processed:,}</b> OC.")
         else:
             await send_telegram_log(bot, "📊 Ежедневное начисление дохода с бизнесов: активных бизнесов не найдено.")
-
-        if income_to_deposit > 0: # <-- Вот эта строка 1660
-                        # Строки ниже должны быть с ОДИНАКОВЫМ и УВЕЛИЧЕННЫМ отступом относительно строки 'if income_to_deposit > 0:'
-                        current_total_income = await database.update_user_total_business_income(user_id, deposited_amount, conn_ext=conn)
-                        await check_and_grant_achievements(
-                            user_id,
-                            chat_id,
-                            bot,
-                            business_total_income_earned_value=current_total_income
-                        )
-                    # --- КОНЕЦ ВЫЗОВА ПРОВЕРКИ ДОСТИЖЕНИЙ ---
 
     except Exception as e:
         logger.error(f"SCHEDULER: Критическая ошибка в process_daily_business_income_and_events: {e}", exc_info=True)
