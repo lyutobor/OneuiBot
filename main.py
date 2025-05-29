@@ -796,23 +796,19 @@ async def on_startup(dispatcher: Dispatcher):
         except Exception as e_init_reset_bonus: # Изменил имя переменной для избежания конфликта
             logger.error(f"Failed to set initial '{bonus_reset_key}': {e_init_reset_bonus}", exc_info=True)
 
-    # >>>>> ДОБАВИТЬ: Инициализация времени сброса периода рулетки <<<<<
+    # Инициализация времени сброса периода рулетки
     roulette_reset_key = 'last_global_roulette_period_reset'
     if not await database.get_setting_timestamp(roulette_reset_key):
         logger.info(f"Setting initial '{roulette_reset_key}' as it was not found in DB.")
         try:
-            # Устанавливаем время давно в прошлом, чтобы первый сброс по расписанию произошел корректно
-            # и рулетка была доступна сразу
             initial_roulette_reset_time_local = datetime.now(pytz_timezone(Config.TIMEZONE)).replace(
-                 hour=Config.RESET_HOUR, minute=4, second=0, microsecond=0 # Используем общие RESET_HOUR и минуты 4
+                 hour=Config.RESET_HOUR, minute=4, second=0, microsecond=0 
             )
-            initial_roulette_reset_time_local -= timedelta(days=(Config.ROULETTE_GLOBAL_COOLDOWN_DAYS * 2 + 1)) # Отнимаем больше дней
-
+            initial_roulette_reset_time_local -= timedelta(days=(Config.ROULETTE_GLOBAL_COOLDOWN_DAYS * 2 + 1)) 
             await database.set_setting_timestamp(roulette_reset_key, initial_roulette_reset_time_local.astimezone(dt_timezone.utc))
             logger.info(f"Initial '{roulette_reset_key}' set to: {initial_roulette_reset_time_local.isoformat()} {Config.TIMEZONE}")
         except Exception as e_init_roulette_reset:
             logger.error(f"Failed to set initial '{roulette_reset_key}': {e_init_roulette_reset}", exc_info=True)
-    # >>>>> КОНЕЦ ИНИЦИАЛИЗАЦИИ <<<<<
 
     logger.info("Registering handlers...")
     setup_families_handlers(dispatcher)
@@ -820,28 +816,35 @@ async def on_startup(dispatcher: Dispatcher):
     setup_competition_handlers(dispatcher)
     setup_bonus_handlers(dispatcher)
     setup_roulette_handlers(dispatcher)
-    setup_market_handlers(dispatcher) # <<< РЕГИСТРАЦИЯ РЫНКА
+    setup_market_handlers(dispatcher) 
     setup_phone_handlers(dispatcher)
-    setup_business_handlers(dispatcher) # Добавлено
-    setup_black_market_handlers(dispatcher) # Регистрируем хендлеры Черного Рынка
-    logger.info("Registering stats_logic handlers...") # Добавь это
-    setup_stats_handlers(dispatcher) # И это
+    setup_business_handlers(dispatcher) 
+    setup_black_market_handlers(dispatcher) 
+    setup_stats_handlers(dispatcher) 
     setup_achievements_handlers(dispatcher)
     setup_robbank_handlers(dispatcher)
     setup_daily_onecoin_handlers(dispatcher)
+    # Эти логи уже были, но для полноты:
     logger.info("Achievements command handlers registered.")
-    logger.info("Stats command handlers registered.") # И это
+    logger.info("Stats command handlers registered.")
     logger.info("Black Market command handlers registered.")
     logger.info("All command handlers registered.")
 
     try:
-        if Config.TIMEZONE and pytz_timezone(Config.TIMEZONE):
+        app_timezone = None # Инициализируем переменную перед блоком if
+        if Config.TIMEZONE:
+            try:
+                app_timezone = pytz_timezone(Config.TIMEZONE)
+            except Exception as e_tz_init:
+                logger.error(f"Некорректный TIMEZONE ('{Config.TIMEZONE}') в конфигурации: {e_tz_init}. Планировщик не будет настроен.")
+        
+        if app_timezone: # Только если таймзона корректна, настраиваем задачи
+            logger.info(f"Scheduling jobs with timezone: {Config.TIMEZONE}")
             
-            # vvv НОВАЯ ЗАДАЧА ДЛЯ ЧЕРНОГО РЫНКА vvv
             # Обновление ассортимента Черного Рынка
             bm_reset_hour = getattr(Config, "BLACKMARKET_RESET_HOUR", 21)
             scheduler.add_job(
-                refresh_black_market_offers, # <--- И ЭТУ ТОЖЕ ПРОВЕРЬ
+                refresh_black_market_offers, 
                 CronTrigger(hour=bm_reset_hour, minute=random.randint(0, 5), timezone=Config.TIMEZONE), 
                 args=[bot], 
                 id='refresh_black_market_job',
@@ -849,27 +852,25 @@ async def on_startup(dispatcher: Dispatcher):
                 misfire_grace_time=600
             )
             logger.info(f"Black Market refresh job scheduled for {bm_reset_hour:02d}:xx {Config.TIMEZONE}")
+            
+            # Опционально: первый запуск обновления ЧР при старте бота
+            # asyncio.create_task(refresh_black_market_offers(bot)) # Раскомментируйте, если нужен немедленный запуск
+            # logger.info("Initial Black Market refresh task created.")
 
-            # Опционально: первый запуск обновления ЧР при старте бота, чтобы он не был пустым
-            # Это полезно, если бот перезапускается, а до планового обновления еще далеко.
-            
-            logger.info("Initial Black Market refresh task created.")
-            
             # Ежедневное начисление дохода с бизнесов и обработка событий
-            business_income_hour = Config.BUSINESS_DAILY_INCOME_COLLECTION_HOUR # 21:00 по умолчанию
-            # Можно поставить на несколько минут позже, чтобы не конфликтовать с другими задачами в 21:00:
-            business_income_minute = 10 
+            business_income_hour = Config.BUSINESS_DAILY_INCOME_COLLECTION_HOUR 
+            business_income_minute = 10  # Сдвигаем на 10 минут от основного часа сброса
             scheduler.add_job(
                 process_daily_business_income_and_events,
                 CronTrigger(hour=business_income_hour, minute=business_income_minute, timezone=Config.TIMEZONE),
                 args=[bot],
                 id='daily_business_income_and_events_job',
                 replace_existing=True,
-                misfire_grace_time=600 # Допускаем задержку до 10 минут
+                misfire_grace_time=600 
             )
             logger.info(f"Daily business income and events job scheduled for {business_income_hour:02d}:{business_income_minute:02d} {Config.TIMEZONE}")
             
-            # --- Существующие задачи планировщика (оставляем их) ---
+            # --- Существующие задачи планировщика ---
             scheduler.add_job(daily_competition_score_update, CronTrigger(hour=Config.RESET_HOUR, minute=5, timezone=Config.TIMEZONE), id='daily_competition_score_update_job', replace_existing=True, misfire_grace_time=300)
             scheduler.add_job(check_and_finalize_competitions, 'interval', seconds=Config.COMPETITION_END_CHECK_INTERVAL_SECONDS, id='check_finalize_competitions_job', replace_existing=True, misfire_grace_time=600)
             scheduler.add_job(global_bonus_multiplier_reset_task, CronTrigger(hour=Config.BONUS_MULTIPLIER_RESET_HOUR, minute=2, timezone=Config.TIMEZONE), id='global_bonus_reset_job', replace_existing=True, misfire_grace_time=120)
@@ -911,27 +912,40 @@ async def on_startup(dispatcher: Dispatcher):
             )
             logger.info(f"Задача сброса глобального периода рулетки запланирована на день '{trigger_day_roulette}' в {Config.RESET_HOUR:02d}:04 {Config.TIMEZONE}")
             
-            check_interval_seconds = 300 # 5 минут
+            check_interval_seconds_prizes = 300 # Для просроченных призов
             scheduler.add_job(
                 scheduled_check_expired_phone_prizes,
                 'interval',
-                seconds=check_interval_seconds,
+                seconds=check_interval_seconds_prizes, # Используем отдельную переменную
                 args=[bot], 
                 id='check_expired_phone_prizes_job',
                 replace_existing=True,
                 misfire_grace_time=120 
             )
-            logger.info(f"Задача проверки просроченных призов запланирована на выполнение каждые {check_interval_seconds} секунд.")
-            # === КОНЕЦ НОВОЙ ЗАДАЧИ === # Это был комментарий в твоем коде, я его оставляю
-
-        # ДОБАВЛЕНО: Блок except для обработки ошибок планировщика
-        else: # Этот else относится к `if Config.TIMEZONE and pytz_timezone(Config.TIMEZONE):`
-            logger.warning("TIMEZONE не настроен или некорректен. Задачи планировщика не будут запущены.")
+            logger.info(f"Задача проверки просроченных призов запланирована на выполнение каждые {check_interval_seconds_prizes} секунд.")
             
-    except Exception as e: # Ловим любые ошибки, которые могли произойти в try-блоке
-        logger.error(f"Ошибка при настройке задач планировщика: {e}", exc_info=True)
-        # Тут можно добавить await send_telegram_log(bot, f"🔴 Ошибка настройки планировщика: {e}") если нужно
-    # Теперь функция on_startup корректно завершена
+            # !!! ВАЖНО: ЗАПУСК ПЛАНИРОВЩИКА !!!
+            if not scheduler.running: # Проверяем, не запущен ли он уже
+                try:
+                    scheduler.start()
+                    logger.info("Планировщик AsyncIOScheduler успешно запущен.")
+                except Exception as e_scheduler_start:
+                    logger.critical(f"КРИТИЧЕСКАЯ ОШИБКА: Не удалось запустить AsyncIOScheduler: {e_scheduler_start}", exc_info=True)
+                    # Используем LOG_TELEGRAM_USER_ID для уведомления администратора
+                    if Config.LOG_TELEGRAM_USER_ID: # Проверяем, что ID администратора задан
+                        try:
+                            # Добавляем disable_web_page_preview=True
+                            await bot.send_message(Config.LOG_TELEGRAM_USER_ID, f"🔴 КРИТИЧЕСКАЯ ОШИБКА: Не удалось запустить планировщик задач: <pre>{html.escape(str(e_scheduler_start))}</pre>", parse_mode="HTML", disable_web_page_preview=True)
+                        except Exception as e_log_send:
+                            logger.error(f"Не удалось отправить лог о сбое запуска планировщика администратору: {e_log_send}")
+            else:
+                logger.info("Планировщик AsyncIOScheduler уже был запущен.")
+        
+        else: # Этот else относится к `if app_timezone:`
+            logger.warning("TIMEZONE не настроен или некорректен в Config. Задачи планировщика не будут запущены.")
+            
+    except Exception as e: 
+        logger.error(f"Ошибка при настройке или запуске задач планировщика в on_startup: {e}", exc_info=True)
 
 async def on_shutdown(dispatcher: Dispatcher):
     logger.info("Starting bot shutdown sequence...")
