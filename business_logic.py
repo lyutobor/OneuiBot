@@ -15,7 +15,7 @@ from aiogram.types import Message, CallbackQuery # CallbackQuery понадоб�
 from config import Config
 import database
 from business_data import BUSINESS_DATA, BUSINESS_UPGRADES, BANK_DATA, BUSINESS_EVENTS # Новые данные
-from utils import get_user_mention_html, send_telegram_log
+from utils import get_user_mention_html, send_telegram_log, fetch_user_display_data
 
 import logging
 
