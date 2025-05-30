@@ -1519,7 +1519,7 @@ async def process_daily_business_income_and_events(bot: Bot):
 
         # Шаг 2: Обработка каждого бизнеса
         for user_id, chats_data in all_users_with_businesses.items():
-            user_full_name, user_username = await database.fetch_user_display_data(bot, user_id) # Используем database.fetch_user_display_data
+            user_full_name, user_username = await fetch_user_display_data(bot, user_id) # Используем fetch_user_display_data из utils
             user_link = get_user_mention_html(user_id, user_full_name, user_username)
 
             for chat_id, businesses in chats_data.items():
