@@ -308,7 +308,7 @@ class Config:
     BLACKMARKET_MAX_PHONES_PER_MONTH = 3
     # === Настройки для Бизнесов ===
     BUSINESS_MAX_PER_USER_PER_CHAT = 2 # Максимальное количество бизнесов на игрока в одном чате
-    BUSINESS_DAILY_INCOME_COLLECTION_HOUR = 21 # Час сбора дохода бизнесов (по TIMEZONE)
+    BUSINESS_DAILY_INCOME_COLLECTION_HOUR = 22 # Час сбора дохода бизнесов (по TIMEZONE)
     BUSINESS_TAX_BASE_PERCENT = 0.07 # Базовый налог 7%
     BUSINESS_TAX_FULL_STAFF_PERCENT = 0.15 # Налог 15% при полной занятости персонала
     BUSINESS_TAX_FULL_STAFF_START_BUSINESS_INDEX = 7 # Начинать увеличение налога с 7-го бизнеса (бизнес_7_it_oneui_solutions_ai)
