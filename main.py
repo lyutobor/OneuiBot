@@ -858,8 +858,8 @@ async def on_startup(dispatcher: Dispatcher):
             # logger.info("Initial Black Market refresh task created.")
 
             # Ежедневное начисление дохода с бизнесов и обработка событий
-            business_income_hour = 2 
-            business_income_minute = 10
+            business_income_hour = Config.BUSINESS_DAILY_INCOME_COLLECTION_HOUR 
+            business_income_minute = 5  # Сдвигаем на 5 минут от основного часа сброса
             scheduler.add_job(
                 process_daily_business_income_and_events,
                 CronTrigger(hour=business_income_hour, minute=business_income_minute, timezone=Config.TIMEZONE),
