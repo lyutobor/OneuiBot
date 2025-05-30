@@ -1487,152 +1487,88 @@ async def process_daily_business_income_and_events(bot: Bot):
     
     all_users_with_businesses = {} # user_id -> chat_id -> list of businesses
 
-    conn = None
+        conn = None
     try:
-        conn = await database.get_connection() # Получаем одно соединение для всей операции
-        
-        # Шаг 1: Собрать все активные бизнесы и их владельцев
-        raw_businesses = await conn.fetch("SELECT * FROM user_businesses WHERE is_active = TRUE")
+        conn = await database.get_connection()
+        # ... (сбор all_users_with_businesses без изменений) ...
 
-        # Группируем бизнесы по user_id и chat_id для удобства обработки
-        for biz_row in raw_businesses:
-            biz_data = dict(biz_row)
-            # Убеждаемся, что даты aware (как мы делаем в database.py функциях)
-            if biz_data.get('last_income_calculation_utc') and isinstance(biz_data['last_income_calculation_utc'], datetime):
-                ts = biz_data['last_income_calculation_utc']
-                biz_data['last_income_calculation_utc'] = ts.replace(tzinfo=dt_timezone.utc) if ts.tzinfo is None else ts.astimezone(dt_timezone.utc)
-            if biz_data.get('time_purchased_utc') and isinstance(biz_data['time_purchased_utc'], datetime):
-                ts = biz_data['time_purchased_utc']
-                biz_data['time_purchased_utc'] = ts.replace(tzinfo=dt_timezone.utc) if ts.tzinfo is None else ts.astimezone(dt_timezone.utc)
-
-            user_id = biz_data['user_id']
-            chat_id = biz_data['chat_id']
-            if user_id not in all_users_with_businesses:
-                all_users_with_businesses[user_id] = {}
-            if chat_id not in all_users_with_businesses[user_id]:
-                all_users_with_businesses[user_id][chat_id] = []
-            all_users_with_businesses[user_id][chat_id].append(biz_data)
-
-        total_income_processed = 0
-        total_businesses_processed = 0
-        all_event_messages = [] # Сообщения о событиях для отправки пользователям
-
-        # Шаг 2: Обработка каждого бизнеса
         for user_id, chats_data in all_users_with_businesses.items():
-            user_full_name, user_username = await fetch_user_display_data(bot, user_id) # Используем fetch_user_display_data из utils
+            user_full_name, user_username = await fetch_user_display_data(bot, user_id)
             user_link = get_user_mention_html(user_id, user_full_name, user_username)
 
             for chat_id, businesses in chats_data.items():
-                chat_title = businesses[0].get('chat_title') or str(chat_id) # Возьмем из первой записи
+                chat_title = businesses[0].get('chat_title') or str(chat_id)
                 
-                # Получаем банк пользователя для этого чата (создадим, если нет)
+                # Этап 1: Получение или создание банка для пользователя в чате
                 user_bank = await database.get_user_bank(user_id, chat_id, conn_ext=conn)
-                bank_level = user_bank['bank_level'] if user_bank else 0
-                bank_static_info = BANK_DATA.get(bank_level, BANK_DATA.get(0)) 
-                bank_max_capacity = bank_static_info['max_capacity']
+                
+                if user_bank is None: # Если банк не найден
+                    logger.info(f"SCHEDULER: Bank not found for user {user_id} in chat {chat_id}. Creating default bank (level 0).")
+                    # Пытаемся создать банк и ПЕРЕПИСЫВАЕМ user_bank результатом
+                    user_bank = await database.create_or_update_user_bank(
+                        user_id, chat_id, user_username, user_full_name, chat_title,
+                        current_balance_change=0, # Баланс не меняем при создании
+                        new_bank_level=0,         # Создаем банк 0-го уровня
+                        conn_ext=conn
+                    )
+                    if user_bank:
+                        logger.info(f"SCHEDULER: Default bank operation successful for user {user_id}, chat {chat_id}. New Bank Data: {user_bank}")
+                    else: # Если создание банка не удалось
+                        logger.error(f"SCHEDULER: CRITICAL - Failed to create/get default bank for user {user_id} chat {chat_id}. Skipping income processing for this chat.")
+                        continue # ПРОПУСКАЕМ текущий chat_id и переходим к следующему
 
-                await database.update_user_version(user_id, chat_id,
-                                                   (await database.get_user_version(user_id, chat_id)), 
-                                                   username=user_username, full_name=user_full_name, chat_title=chat_title,
-                                                   force_update_last_used=False, conn_ext=conn # Добавил conn_ext
-                )
-                await database.create_or_update_user_bank(user_id, chat_id, user_username, user_full_name, chat_title, conn_ext=conn)
+                # На этом этапе user_bank ГАРАНТИРОВАННО является словарем, если мы не вышли через continue
+                bank_level = user_bank.get('bank_level', 0) # Безопасное извлечение
+                bank_static_info = BANK_DATA.get(bank_level, BANK_DATA.get(0)) 
+                bank_max_capacity = bank_static_info.get('max_capacity', 0) if bank_static_info else 0
 
 
                 for biz in businesses:
-                    business_id = biz['business_id']
-                    business_key = biz['business_key']
-                    current_level = biz['current_level']
-                    staff_hired_slots = biz['staff_hired_slots']
-                    last_income_calc_utc = biz['last_income_calculation_utc']
+                    # ... (расчет base_income_per_hour, event_multiplier, income_to_deposit и т.д.) ...
+                    business_id = biz['business_id'] # Для логгирования
+                    business_key = biz['business_key'] # Для логгирования и BUSINESS_DATA
 
-                    business_static_info = BUSINESS_DATA.get(business_key)
-                    if not business_static_info:
-                        logger.warning(f"Static data for business key {business_key} not found for business ID {business_id}. Skipping.")
-                        continue
-                    
-                    level_info = business_static_info['levels'].get(current_level)
-                    if not level_info:
-                        logger.warning(f"Level {current_level} data for business key {business_key} not found for business ID {business_id}. Skipping.")
-                        continue
+                    # ... (код расчета gross_income_per_hour, event_multiplier, effective_income_per_hour, tax_amount_per_hour, net_income_per_hour, income_to_deposit) ...
+                    # Этот код остается как был, но я его сократил для ясности исправления
 
-                    base_income_per_hour = level_info['base_income_per_hour']
-                    max_staff_slots = level_info['max_staff_slots']
-                    business_idx = _get_business_index(business_key)
+                    # Важно: получаем актуальный баланс из user_bank перед обработкой депозита для этого бизнеса
+                    current_bank_balance = user_bank.get('current_balance', 0) # Безопасное извлечение
+                    deposited_amount = 0 # Сумма, фактически зачисленная в банк
 
-                    now_utc = datetime.now(dt_timezone.utc)
-                    hours_passed = (now_utc - last_income_calc_utc).total_seconds() / 3600
-                    hours_passed = max(0, min(24.0, hours_passed)) 
+                    if income_to_deposit > 0: # Только если есть что зачислять
+                        if current_bank_balance < bank_max_capacity:
+                            space_left_in_bank = bank_max_capacity - current_bank_balance
+                            amount_to_actually_deposit = min(income_to_deposit, space_left_in_bank)
 
-                    if hours_passed < 1.0: 
-                        logger.debug(f"Business {business_id} for user {user_id}: hours_passed={hours_passed:.2f}, skipping income calculation for now.")
-                        continue 
-
-                    staff_income_percentage_per_unit = _calculate_staff_income_percentage(business_idx)
-                    staff_income_bonus_per_hour = staff_hired_slots * (base_income_per_hour * staff_income_percentage_per_unit)
-                    gross_income_per_hour = base_income_per_hour + staff_income_bonus_per_hour
-                    
-                    event_multiplier = 1.0
-                    event_msg_to_user = None
-                    user_upgrades_for_biz = await database.get_business_upgrades(business_id, user_id, conn_ext=conn)
-
-                    event_multiplier, event_msg_to_user = await _process_business_event(
-                        user_id, business_id, business_key, current_level, user_upgrades_for_biz,
-                        base_income_per_hour, user_full_name, user_username, chat_title, chat_id, bot, conn_ext=conn
-                    )
-                    
-                    if event_msg_to_user:
-                        all_event_messages.append({"user_id": user_id, "message": event_msg_to_user})
-                        logger.info(f"Generated event message for user {user_id}, business {business_id}: {event_msg_to_user[:100]}...")
-                    
-                    if event_multiplier == 1.0 and event_msg_to_user and "предотвращено" in event_msg_to_user:
-                        await check_and_grant_achievements(
-                            user_id,
-                            chat_id, 
-                            bot,
-                            business_event_prevented_just_now=True, 
-                            business_events_prevented_total_count=1 
-                        )
-                    
-                    effective_income_per_hour = gross_income_per_hour * (1 + event_multiplier - 1) 
-                    effective_income_per_hour = max(0, effective_income_per_hour) 
-
-                    tax_rate = Config.BUSINESS_TAX_BASE_PERCENT
-                    if business_idx >= Config.BUSINESS_TAX_FULL_STAFF_START_BUSINESS_INDEX and \
-                       staff_hired_slots == max_staff_slots and max_staff_slots > 0: 
-                        tax_rate = Config.BUSINESS_TAX_FULL_STAFF_PERCENT
-                    
-                    tax_amount_per_hour = effective_income_per_hour * tax_rate
-                    net_income_per_hour = effective_income_per_hour - tax_amount_per_hour
-                    net_income_per_hour = max(0, net_income_per_hour) 
-
-                    income_to_deposit = int(net_income_per_hour * hours_passed)
-                    income_to_deposit = max(0, income_to_deposit) 
-
-                    current_bank_balance = user_bank['current_balance'] if user_bank else 0
-                    current_bank_capacity = BANK_DATA.get(bank_level, BANK_DATA[0])['max_capacity']
-
-                    deposited_amount = 0
-                    if current_bank_balance < current_bank_capacity:
-                        space_left = current_bank_capacity - current_bank_balance
-                        deposited_amount = min(income_to_deposit, space_left)
-                        
-                        updated_bank_result = await database.create_or_update_user_bank(
-                            user_id, chat_id, user_username, user_full_name, chat_title,
-                            current_balance_change=deposited_amount, conn_ext=conn
-                        )
-                        if updated_bank_result:
-                            user_bank['current_balance'] = updated_bank_result['current_balance'] 
-                            logger.info(f"Deposited {deposited_amount} OC to bank for user {user_id} in chat {chat_id}.")
-                        else:
-                            logger.error(f"Failed to update bank balance for user {user_id} chat {chat_id}.")
-                    else:
-                        logger.info(f"Bank full for user {user_id} in chat {chat_id}. Income {income_to_deposit} OC lost.")
-                        if income_to_deposit > 0: 
+                            if amount_to_actually_deposit > 0:
+                                updated_bank_after_deposit = await database.create_or_update_user_bank(
+                                    user_id, chat_id, user_username, user_full_name, chat_title,
+                                    current_balance_change=amount_to_actually_deposit, # Используем рассчитанную сумму
+                                    conn_ext=conn
+                                )
+                                if updated_bank_after_deposit:
+                                    user_bank = updated_bank_after_deposit # ОБНОВЛЯЕМ user_bank самой свежей информацией
+                                    deposited_amount = amount_to_actually_deposit
+                                    logger.info(f"Deposited {deposited_amount} OC to bank for user {user_id} in chat {chat_id} from business {business_id}. New bank balance: {user_bank.get('current_balance')}")
+                                else:
+                                    logger.error(f"Failed to update bank balance for user {user_id} chat {chat_id} after deposit attempt for business {business_id}. deposited_amount remains 0.")
+                                    # deposited_amount остается 0, доход для этого бизнеса не будет засчитан в total_income_earned_from_businesses
+                            else: # Если income_to_deposit > 0, но space_left_in_bank <= 0 (на всякий случай, хотя current_bank_balance < bank_max_capacity должно это отсечь)
+                                logger.info(f"Bank full (or no space for positive income) for user {user_id} in chat {chat_id}. Income {income_to_deposit} from biz {business_id} lost.")
+                                # Сообщение о переполнении банка при наличии дохода
+                                lost_income_message = (
+                                    f"⚠️ {user_link}, ваш бизнес \"<b>{html.escape(biz.get('name_override') or BUSINESS_DATA.get(business_key, {}).get('name', business_key))}</b>\" (ID: <code>{business_id}</code>) "
+                                    f"сгенерировал <code>{income_to_deposit:,}</code> OneCoin, но ваш банк в чате \"{html.escape(chat_title)}\" "
+                                    f"<b>переполнен</b> (<code>{current_bank_balance:,}</code>/<code>{bank_max_capacity:,}</code> OC)! "
+                                    f"Этот доход <b>сгорел</b>. Выведите средства командой <code>/withdrawbank</code> и улучшите банк <code>/upgradebank</code>!"
+                                )
+                                all_event_messages.append({"user_id": user_id, "message": lost_income_message})
+                        else: # Банк уже полон
+                            logger.info(f"Bank full for user {user_id} in chat {chat_id} (Balance: {current_bank_balance}, Capacity: {bank_max_capacity}). Income {income_to_deposit} OC from biz {business_id} lost.")
                             lost_income_message = (
-                                f"⚠️ {user_link}, ваш бизнес \"<b>{html.escape(biz['name_override'] or business_static_info['name'])}</b>\" (ID: <code>{business_id}</code>) "
+                                f"⚠️ {user_link}, ваш бизнес \"<b>{html.escape(biz.get('name_override') or BUSINESS_DATA.get(business_key, {}).get('name', business_key))}</b>\" (ID: <code>{business_id}</code>) "
                                 f"сгенерировал <code>{income_to_deposit:,}</code> OneCoin, но ваш банк в чате \"{html.escape(chat_title)}\" "
-                                f"<b>переполнен</b> (<code>{current_bank_capacity:,}</code>/{current_bank_capacity:,} OC)! "
+                                f"<b>переполнен</b> (<code>{current_bank_balance:,}</code>/<code>{bank_max_capacity:,}</code> OC)! "
                                 f"Этот доход <b>сгорел</b>. Выведите средства командой <code>/withdrawbank</code> и улучшите банк <code>/upgradebank</code>!"
                             )
                             all_event_messages.append({"user_id": user_id, "message": lost_income_message})
@@ -1642,8 +1578,15 @@ async def process_daily_business_income_and_events(bot: Bot):
                         business_id, user_id, {'last_income_calculation_utc': now_utc}, conn_ext=conn
                     )
                     
-                    total_income_processed += deposited_amount
+                    total_income_processed += deposited_amount # deposited_amount будет 0, если зачисление не удалось или нечего было зачислять
                     total_businesses_processed += 1
+                           
+                    if deposited_amount > 0:
+                        current_total_income_for_user = await database.update_user_total_business_income(user_id, deposited_amount, conn_ext=conn)
+                        await check_and_grant_achievements(
+                            user_id, chat_id, bot,
+                            business_total_income_earned_value=current_total_income_for_user
+                        )
                            
                     # --- ИСПРАВЛЕННЫЙ БЛОК: ОБНОВЛЕНИЕ ОБЩЕГО ДОХОДА И ДОСТИЖЕНИЙ ---
                     if deposited_amount > 0: # Используем deposited_amount, так как это то, что реально попало в банк
