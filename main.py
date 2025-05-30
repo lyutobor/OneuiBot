@@ -859,7 +859,7 @@ async def on_startup(dispatcher: Dispatcher):
 
             # Ежедневное начисление дохода с бизнесов и обработка событий
             business_income_hour = 2 
-            business_income_minute = 05
+            business_income_minute = 10
             scheduler.add_job(
                 process_daily_business_income_and_events,
                 CronTrigger(hour=business_income_hour, minute=business_income_minute, timezone=Config.TIMEZONE),
