@@ -9,6 +9,7 @@ from typing import Optional, List, Dict, Any, Tuple
 import logging
 from decimal import Decimal, ROUND_HALF_UP
 import json 
+from item_data import PHONE_COMPONENTS
 
 # Убедитесь, что Config импортируется правильно. Если Config находится в корне проекта,
 # и database.py тоже, то "from config import Config" должно работать.
