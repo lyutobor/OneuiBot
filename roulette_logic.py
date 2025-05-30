@@ -139,7 +139,7 @@ async def ensure_user_oneui_record_for_roulette(
 @roulette_router.message(Command(*Config.ROULETTE_COMMAND_ALIASES, ignore_case=True))
 async def cmd_spin_roulette(message: Message, bot: Bot):
     if not message.from_user:
-        await message.reply("Не удалось определить пользователя.")
+        await message.reply("Не удалось определить пользователя.", disable_web_page_preview=True)
         return
 
     user_id = message.from_user.id
@@ -147,8 +147,8 @@ async def cmd_spin_roulette(message: Message, bot: Bot):
     user_tg_username = message.from_user.username
     full_name_from_msg = message.from_user.full_name
     user_link = get_user_mention_html(user_id, full_name_from_msg, user_tg_username)
-    current_time_utc = datetime.now(dt_timezone.utc)
-    local_tz = pytz_timezone(Config.TIMEZONE) 
+    current_time_utc = datetime.now(dt_timezone.utc) # Это должно быть dt_timezone из datetime
+    local_tz = pytz_timezone(Config.TIMEZONE) # Это pytz_timezone из pytz
 
     try:
         await ensure_user_oneui_record_for_roulette(
@@ -156,64 +156,68 @@ async def cmd_spin_roulette(message: Message, bot: Bot):
         )
     except Exception as e_ensure:
         logger.error(f"Roulette: Критическая ошибка ensure_user_oneui_record для {user_id}@{chat_id}: {e_ensure}", exc_info=True)
-        await message.reply("Критическая ошибка подготовки к рулетке (R00).")
+        await message.reply("Критическая ошибка подготовки к рулетке (R00).", disable_web_page_preview=True)
         await send_telegram_log(bot, f"🔴 R00 (ensure_user_oneui) для {user_link} (<code>{user_id}@{chat_id}</code>): <pre>{html.escape(str(e_ensure))}</pre>")
         return
 
     roulette_lock = await get_roulette_lock(user_id, chat_id)
     async with roulette_lock:
         try:
-            roulette_status_current = await database.get_roulette_status(user_id, chat_id)
             can_spin_now = False
             used_purchased_spin_this_time = False
             
-            available_purchased_spins = roulette_status_current.get('extra_roulette_spins', 0) if roulette_status_current else 0
+            # Сначала проверяем и используем купленные спины
+            roulette_status_current_for_purchase = await database.get_roulette_status(user_id, chat_id)
+            available_purchased_spins = roulette_status_current_for_purchase.get('extra_roulette_spins', 0) if roulette_status_current_for_purchase else 0
 
             if available_purchased_spins > 0:
-                # Логика использования купленного спина (остается такой же)
                 new_purchased_spins_count = available_purchased_spins - 1
                 await database.update_roulette_status(user_id, chat_id, {'extra_roulette_spins': new_purchased_spins_count})
-                await message.reply(f"🌀 {user_link}, используется <b>купленный спин рулетки</b>! Осталось: {new_purchased_spins_count}.")
+                await message.reply(f"🌀 {user_link}, используется <b>купленный спин рулетки</b>! Осталось: {new_purchased_spins_count}.", disable_web_page_preview=True)
                 can_spin_now = True
                 used_purchased_spin_this_time = True
                 logger.info(f"User {user_id}@{chat_id} used purchased roulette spin. Remaining: {new_purchased_spins_count}")
             
-            if not can_spin_now: # Проверяем бесплатную попытку
-                # >>>>> НАЧАЛО НОВОЙ ЛОГИКИ ПРОВЕРКИ КУЛДАУНА РУЛЕТКИ (как в /bonus) <<<<<
+            if not can_spin_now: # Если купленный спин не был использован, проверяем бесплатную попытку
                 roulette_global_reset_key = 'last_global_roulette_period_reset'
                 last_global_reset_ts_utc = await database.get_setting_timestamp(roulette_global_reset_key)
 
-                if not last_global_reset_ts_utc: 
+                if not last_global_reset_ts_utc:
                     logger.warning(f"'{roulette_global_reset_key}' не установлен в БД. Рулетка доступна по умолчанию для {user_id}@{chat_id}.")
-                    last_global_reset_ts_utc = current_time_utc - timedelta(days=(Config.ROULETTE_GLOBAL_COOLDOWN_DAYS * 2))
-                
+                    last_global_reset_ts_utc = current_time_utc - timedelta(days=(Config.ROULETTE_GLOBAL_COOLDOWN_DAYS * 5)) # Устанавливаем в далеком прошлом
+
+                # Получаем статус рулетки пользователя (включая last_roulette_spin_timestamp)
+                user_roulette_status_for_cooldown = await database.get_roulette_status(user_id, chat_id)
                 last_spin_in_chat_ts_utc: Optional[datetime] = None
-                if roulette_status_current and roulette_status_current.get('last_roulette_spin_timestamp'):
-                    last_spin_in_chat_ts_utc = roulette_status_current['last_roulette_spin_timestamp']
-                    # Убедимся, что время aware UTC
-                    if last_spin_in_chat_ts_utc.tzinfo is None:
-                        last_spin_in_chat_ts_utc = last_spin_in_chat_ts_utc.replace(tzinfo=dt_timezone.utc)
+                if user_roulette_status_for_cooldown and user_roulette_status_for_cooldown.get('last_roulette_spin_timestamp'):
+                    last_spin_in_chat_ts_utc_val = user_roulette_status_for_cooldown['last_roulette_spin_timestamp']
+                    if isinstance(last_spin_in_chat_ts_utc_val, datetime): # Убедимся, что это datetime
+                        if last_spin_in_chat_ts_utc_val.tzinfo is None: # Гарантируем aware datetime
+                            last_spin_in_chat_ts_utc = last_spin_in_chat_ts_utc_val.replace(tzinfo=dt_timezone.utc)
+                        else:
+                            last_spin_in_chat_ts_utc = last_spin_in_chat_ts_utc_val.astimezone(dt_timezone.utc)
                     else:
-                        last_spin_in_chat_ts_utc = last_spin_in_chat_ts_utc.astimezone(dt_timezone.utc)
-                
+                        logger.warning(f"Некорректный тип last_roulette_spin_timestamp ({type(last_spin_in_chat_ts_utc_val)}) для user {user_id}@{chat_id}")
+
+
+                # ПРОВЕРКА КУЛДАУНА: Если последний спин был ПОСЛЕ или В МОМЕНТ последнего глобального сброса
                 if last_spin_in_chat_ts_utc and last_spin_in_chat_ts_utc >= last_global_reset_ts_utc:
-                    # Пользователь уже крутил в этом чате в текущем глобальном периоде
-                    can_spin_now = False
+                    # Пользователь уже крутил в этом глобальном периоде
+                    can_spin_now = False # Это уже было установлено в начале, но для ясности
                     
                     # Расчет времени следующего глобального сброса для сообщения
                     effective_next_reset_utc = last_global_reset_ts_utc
                     # Находим ближайшее будущее время сброса, добавляя периоды кулдауна
-                    while effective_next_reset_utc <= current_time_utc: # <= чтобы перейти к следующему периоду, если текущий уже начался
+                    while effective_next_reset_utc <= current_time_utc:
                          effective_next_reset_utc += timedelta(days=Config.ROULETTE_GLOBAL_COOLDOWN_DAYS)
                     
-                    # Приводим к часу сброса по местному времени
-                    # Минуты для сообщения могут немного отличаться от минут задачи планировщика, это не страшно
+                    # Приводим к часу сброса по местному времени (используем minute=4 для консистентности с шедулером)
                     next_reset_display_local = effective_next_reset_utc.astimezone(local_tz).replace(
-                        hour=Config.RESET_HOUR, minute=3, second=0, microsecond=0 
+                        hour=Config.RESET_HOUR, minute=4, second=0, microsecond=0 
                     )
                     # Убедимся, что это время действительно в будущем
                     while next_reset_display_local.astimezone(dt_timezone.utc) <= current_time_utc:
-                        next_reset_display_local += timedelta(days=Config.ROULETTE_GLOBAL_COOLDOWN_DAYS) # Переходим к следующему возможному сбросу
+                        next_reset_display_local += timedelta(days=Config.ROULETTE_GLOBAL_COOLDOWN_DAYS)
 
                     await message.reply(
                         f"{user_link}, вы уже испытали удачу в этом чате в текущем "
@@ -225,21 +229,16 @@ async def cmd_spin_roulette(message: Message, bot: Bot):
                     return # Выходим, так как крутить нельзя
                 else: # Можно крутить бесплатно
                     can_spin_now = True
-                # >>>>> КОНЕЦ НОВОЙ ЛОГИКИ ПРОВЕРКИ КУЛДАУНА РУЛЕТКИ <<<<<
             
-            if not can_spin_now: 
-                 logger.warning(f"Roulette: Logic error (R08), user {user_id}@{chat_id} cannot spin but should.")
-                 await message.reply("Ошибка определения возможности спина (R08).")
+            if not can_spin_now: # Этого не должно произойти, если логика выше верна
+                 logger.warning(f"Roulette: Logic error (R08), user {user_id}@{chat_id} cannot spin but should have been determined by now.")
+                 await message.reply("Ошибка определения возможности спина (R08).", disable_web_page_preview=True)
                  return
 
-            # --- Остальная часть функции cmd_spin_roulette (выбор приза, применение, отправка сообщения) ---
-            # остается такой же, как в моем предыдущем полном ответе для roulette_logic.py
-            # (начиная с processing_message = await message.reply(...))
-            # Важно, что в конце, если это был бесплатный спин, обновляется 
-            # 'last_roulette_spin_timestamp' в roulette_status.
-
-            processing_message = await message.reply(f"🎲 {user_link} запускает рулетку удачи... Посмотрим, что выпадет!",
-             disable_web_page_preview=True 
+            # --- Основная часть выполнения рулетки ---
+            processing_message = await message.reply(
+                f"🎲 {user_link} запускает рулетку удачи... Посмотрим, что выпадет!",
+                disable_web_page_preview=True 
             )
             await asyncio.sleep(random.uniform(0.8, 2.0))
 
@@ -257,15 +256,16 @@ async def cmd_spin_roulette(message: Message, bot: Bot):
             final_response_text = f"🎉 Вращение завершено!\n{response_text_prize}"
             try:
                 await processing_message.edit_text(final_response_text, parse_mode="HTML", disable_web_page_preview=True)
-            except Exception:
+            except Exception: # Если редактирование не удалось (например, сообщение слишком старое)
                 await message.reply(final_response_text, parse_mode="HTML", disable_web_page_preview=True)
 
             # Обновляем время последнего *бесплатного* спина, если это был он и он был успешным
             if not used_purchased_spin_this_time and \
                "код R05" not in response_text_prize and \
                "код R00" not in response_text_prize: 
+                 # Устанавливаем last_roulette_spin_timestamp на current_time_utc (время НАЧАЛА команды)
                  await database.update_roulette_status(user_id, chat_id, {'last_roulette_spin_timestamp': current_time_utc})
-                 logger.info(f"Roulette: FREE spin time updated for user {user_id}@{chat_id}.")
+                 logger.info(f"Roulette: FREE spin time updated for user {user_id}@{chat_id} to {current_time_utc.isoformat()}.")
             
             chat_title_for_log_final = html.escape(message.chat.title or f"ChatID {chat_id}")
             spin_type_log = "купленный" if used_purchased_spin_this_time else "бесплатный"
@@ -274,7 +274,7 @@ async def cmd_spin_roulette(message: Message, bot: Bot):
 
         except Exception as e:
             logger.error(f"Ошибка в команде рулетки для {user_link} в чате {chat_id}: {e}", exc_info=True)
-            await message.reply("Ой, что-то пошло не так с рулеткой! (R07).")
+            await message.reply("Ой, что-то пошло не так с рулеткой! (R07).", disable_web_page_preview=True)
             await send_telegram_log(bot, f"🔴 Критическая ошибка R07 в рулетке для {user_link} (чат <code>{chat_id}</code>): <pre>{html.escape(str(e))}</pre>")
 
 # setup_roulette_handlers остается без изменений
