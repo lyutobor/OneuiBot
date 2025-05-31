@@ -10,6 +10,8 @@ import logging
 from decimal import Decimal, ROUND_HALF_UP
 import json 
 from item_data import PHONE_COMPONENTS
+from phone_data import PHONE_MODELS as PHONE_MODELS_LIST_DB # Импортируем список
+from item_data import PHONE_COMPONENTS as PHONE_COMPONENTS_DB # Импортируем компоненты
 
 # Убедитесь, что Config импортируется правильно. Если Config находится в корне проекта,
 # и database.py тоже, то "from config import Config" должно работать.
@@ -35,6 +37,8 @@ async def get_user_chat_lock(user_id: int, chat_id: int) -> asyncio.Lock:
 
 # Константа для минимальной версии OneUI для создания семьи, если она не определена в Config
 FAMILY_CREATION_MIN_VERSION = getattr(Config, 'FAMILY_CREATION_MIN_VERSION', 5.0)
+PHONE_MODELS = {phone_info["key"]: phone_info for phone_info in PHONE_MODELS_LIST_DB}
+PHONE_COMPONENTS = PHONE_COMPONENTS_DB # Просто присваиваем, если он уже словарь
 
 
 async def get_connection() -> asyncpg.Connection:
@@ -578,6 +582,23 @@ async def init_db():
     finally:
         if conn and not conn.is_closed():
             await conn.close()
+            
+async def get_all_user_activity_chats(user_id: int, conn_ext: Optional[asyncpg.Connection] = None) -> List[int]:
+    """
+    Получает список ID всех чатов, где у пользователя есть какая-либо запись в user_oneui.
+    """
+    conn = conn_ext if conn_ext else await get_connection()
+    try:
+        # Выбираем только уникальные chat_id
+        rows = await conn.fetch("SELECT DISTINCT chat_id FROM user_oneui WHERE user_id = $1", user_id)
+        return [row['chat_id'] for row in rows]
+    except Exception as e:
+        logger.error(f"DB: Ошибка получения активных чатов для user {user_id}: {e}", exc_info=True)
+        return []
+    finally:
+        if not conn_ext and conn and not conn.is_closed():
+            await conn.close()            
+            
             
 async def get_user_bm_monthly_purchases(user_id: int, year_month: str, conn_ext: Optional[asyncpg.Connection] = None) -> int:
     """Возвращает phones_purchased_count для пользователя за указанный year_month. Если записи нет, возвращает 0."""

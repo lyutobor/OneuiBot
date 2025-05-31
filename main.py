@@ -24,6 +24,7 @@ from pytz import timezone as pytz_timezone # Убедитесь, что pytz у�
 import logging
 from phrases import ONEUI_BLOCKED_PHRASES
 from daily_onecoin_logic import setup_daily_onecoin_handlers
+from reminders_logic import setup_reminders_handlers
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -824,6 +825,7 @@ async def on_startup(dispatcher: Dispatcher):
     setup_achievements_handlers(dispatcher)
     setup_robbank_handlers(dispatcher)
     setup_daily_onecoin_handlers(dispatcher)
+    setup_reminders_handlers(dispatcher)
     # Эти логи уже были, но для полноты:
     logger.info("Achievements command handlers registered.")
     logger.info("Stats command handlers registered.")
