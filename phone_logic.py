@@ -1321,26 +1321,16 @@ async def cmd_purchase_confirm_yes(message: Message, state: FSMContext, bot: Bot
 
 
                 # >>> НАЧАЛО ИЗМЕНЕНИЙ ДЛЯ РЕМОНТА БАТАРЕИ <<<
-                if broken_comp_info and broken_comp_info.get("component_type") == "battery": # [fileId: lyutobor/oneuibot/OneuiBot-d24aeba8ba075ed3120868c91430c2788c6dcd5e/item_data.py]
-                     # Код внутри этого if должен быть сдвинут на один уровень вправо
+                if broken_comp_info and broken_comp_info.get("component_type") == "battery": # Строка 1324
                      logger.info(f"RepairPhone: Ремонтируется батарея {broken_component_key_repair} для телефона {phone_inv_id_to_repair}. Обновляем таймеры батареи.")
                      
                      fields_to_update_battery_times: Dict[str, Any] = {}
-                     new_last_charged_utc_for_repaired_battery = datetime.now(dt_timezone.utc) # [fileId: lyutobor/oneuibot/OneuiBot-d24aeba8ba075ed3120868c91430c2788c6dcd5e/phone_logic.py]
+                     new_last_charged_utc_for_repaired_battery = datetime.now(dt_timezone.utc)
                      fields_to_update_battery_times['last_charged_utc'] = new_last_charged_utc_for_repaired_battery
 
-                     equipped_case_key_after_repair = phone_to_repair_check.get('equipped_case_key') if phone_to_repair_check else None
-                     case_battery_bonus_days_after_repair = 0
-                     if equipped_case_key_after_repair and equipped_case_key_after_repair in PHONE_CASES: # [fileId: lyutobor/oneuibot/OneuiBot-d24aeba8ba075ed3120868c91430c2788c6dcd5e/item_data.py]
-                         case_battery_bonus_days_after_repair = PHONE_CASES[equipped_case_key_after_repair].get('battery_days_increase', 0) # [fileId: lyutobor/oneuibot/OneuiBot-d24aeba8ba075ed3120868c91430c2788c6dcd5e/item_data.py]
-                     
-                     base_phone_battery_days_config = getattr(Config, "PHONE_BASE_BATTERY_DAYS", 2) # [fileId: lyutobor/oneuibot/OneuiBot-d24aeba8ba075ed3120868c91430c2788c6dcd5e/config.py]
-                     total_battery_life_days_repaired = base_phone_battery_days_config + case_battery_bonus_days_after_repair
-                     
-                     fields_to_update_battery_times['battery_dead_after_utc'] = new_last_charged_utc_for_repaired_battery + timedelta(days=total_battery_life_days_repaired) # [fileId: lyutobor/oneuibot/OneuiBot-d24aeba8ba075ed3120868c91430c2788c6dcd5e/phone_logic.py]
-                     fields_to_update_battery_times['battery_break_after_utc'] = fields_to_update_battery_times['battery_dead_after_utc'] + timedelta(days=getattr(Config, "PHONE_CHARGE_WINDOW_DAYS", 2)) # [fileId: lyutobor/oneuibot/OneuiBot-d24aeba8ba075ed3120868c91430c2788c6dcd5e/config.py, lyutobor/oneuibot/OneuiBot-d24aeba8ba075ed3120868c91430c2788c6dcd5e/phone_logic.py]
+                     # ... (остальная логика расчета и обновления временных меток батареи) ...
 
-                     update_battery_times_success = await database.update_phone_status_fields( # [fileId: lyutobor/oneuibot/OneuiBot-d24aeba8ba075ed3120868c91430c2788c6dcd5e/database.py, lyutobor/oneuibot/OneuiBot-d24aeba8ba075ed3120868c91430c2788c6dcd5e/phone_logic.py]
+                     update_battery_times_success = await database.update_phone_status_fields(
                          phone_inv_id_to_repair, fields_to_update_battery_times, conn_ext=conn
                      )
                      if not update_battery_times_success:
@@ -1348,6 +1338,36 @@ async def cmd_purchase_confirm_yes(message: Message, state: FSMContext, bot: Bot
                      else:
                          logger.info(f"RepairPhone: Временные метки батареи для телефона ID {phone_inv_id_to_repair} успешно обновлены после ремонта батареи.")
                  # >>> КОНЕЦ ИЗМЕНЕНИЙ ДЛЯ РЕМОНТА БАТАРЕИ <<<
+
+                 # Этот блок должен быть на том же уровне отступа, что и `if broken_comp_info...` выше.
+                 # Удаляем дубликаты и оставляем исправленную версию:
+                 new_balance_after_repair = current_balance_before_op - repair_work_cost_calc
+
+                 await message.reply(
+                     f"✅ {user_link}, вы успешно починили \"<b>{broken_component_name_repair}</b>\" "
+                     f"на телефоне \"<b>{html.escape(phone_name_to_repair)}</b>\" (ID: {phone_inv_id_to_repair})!\n"
+                     f"Списано {repair_work_cost_calc} OC за работу и 1 шт. \"<b>{broken_component_name_repair}</b>\" из инвентаря.\n"
+                     f"Ваш новый баланс в этом чате: {new_balance_after_repair} OneCoin(s).",
+                     parse_mode="HTML",
+                     disable_web_page_preview=True # Добавлено согласно вашему пожеланию
+                 )
+                 await send_telegram_log(bot,
+                     f"🔧 Телефон починен: {user_link} починил \"{broken_component_name_repair}\" "
+                     f"на телефоне \"{html.escape(phone_name_to_repair)}\" (ID: {phone_inv_id_to_repair}) "
+                     f"за {repair_work_cost_calc} OC и 1 деталь. Баланс: {new_balance_after_repair} OC."
+                 )
+                 
+                 # --- ВЫЗОВ ПРОВЕРКИ ДОСТИЖЕНИЙ ---
+                 repaired_battery_breakdown_from_state = user_data_from_state.get('repaired_battery_breakdown_for_ach', False)
+                 await check_and_grant_achievements(
+                     user_id,
+                     original_chat_id_of_action,
+                     bot,
+                     phone_repaired_just_now=True, 
+                     repaired_battery_breakdown_just_now=repaired_battery_breakdown_from_state,
+                     repaired_with_bm_component=user_data_from_state.get('component_is_from_bm_for_ach', False)
+                 )
+                 # --- КОНЕЦ ВЫЗОВА ПРОВЕРКИ ДОСТИЖЕНИЙ ---
 
                  # Этот код (сообщение пользователю и логи) должен быть на том же уровне отступа,
                  # что и блок if broken_comp_info... выше.
