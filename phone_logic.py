@@ -1319,6 +1319,43 @@ async def cmd_purchase_confirm_yes(message: Message, state: FSMContext, bot: Bot
                  if not update_phone_success:
                       raise Exception(f"Не удалось обновить статус телефона ID {phone_inv_id_to_repair} после ремонта в БД.")
 
+
+                # >>> НАЧАЛО ИЗМЕНЕНИЙ ДЛЯ РЕМОНТА БАТАРЕИ <<<
+                # broken_comp_info - это информация о сломанном компоненте, который вы чините.
+                # Мы проверяем, действительно ли это была батарея.
+                if broken_comp_info and broken_comp_info.get("component_type") == "battery": # [fileId: lyutobor/oneuibot/OneuiBot-d24aeba8ba075ed3120868c91430c2788c6dcd5e/item_data.py]
+                    logger.info(f"RepairPhone: Ремонтируется батарея {broken_component_key_repair} для телефона {phone_inv_id_to_repair}. Обновляем таймеры батареи.")
+
+                    fields_to_update_battery_times: Dict[str, Any] = {}
+                    # Устанавливаем время "последней зарядки" на текущий момент, так как батарея "новая"
+                    new_last_charged_utc_for_repaired_battery = datetime.now(dt_timezone.utc) # [fileId: lyutobor/oneuibot/OneuiBot-d24aeba8ba075ed3120868c91430c2788c6dcd5e/phone_logic.py]
+                    fields_to_update_battery_times['last_charged_utc'] = new_last_charged_utc_for_repaired_battery
+
+                    # Получаем текущий чехол, чтобы учесть его бонус к батарее
+                    # phone_to_repair_check был получен ранее в этой же функции подтверждения
+                    equipped_case_key_after_repair = phone_to_repair_check.get('equipped_case_key') 
+                    case_battery_bonus_days_after_repair = 0
+                    if equipped_case_key_after_repair and equipped_case_key_after_repair in PHONE_CASES: # [fileId: lyutobor/oneuibot/OneuiBot-d24aeba8ba075ed3120868c91430c2788c6dcd5e/item_data.py]
+                        case_battery_bonus_days_after_repair = PHONE_CASES[equipped_case_key_after_repair].get('battery_days_increase', 0) # [fileId: lyutobor/oneuibot/OneuiBot-d24aeba8ba075ed3120868c91430c2788c6dcd5e/item_data.py]
+
+                    base_phone_battery_days_config = getattr(Config, "PHONE_BASE_BATTERY_DAYS", 2) # [fileId: lyutobor/oneuibot/OneuiBot-d24aeba8ba075ed3120868c91430c2788c6dcd5e/config.py]
+                    total_battery_life_days_repaired = base_phone_battery_days_config + case_battery_bonus_days_after_repair
+
+                    # Рассчитываем новые battery_dead_after_utc и battery_break_after_utc
+                    fields_to_update_battery_times['battery_dead_after_utc'] = new_last_charged_utc_for_repaired_battery + timedelta(days=total_battery_life_days_repaired) # [fileId: lyutobor/oneuibot/OneuiBot-d24aeba8ba075ed3120868c91430c2788c6dcd5e/phone_logic.py]
+                    fields_to_update_battery_times['battery_break_after_utc'] = fields_to_update_battery_times['battery_dead_after_utc'] + timedelta(days=getattr(Config, "PHONE_CHARGE_WINDOW_DAYS", 2)) # [fileId: lyutobor/oneuibot/OneuiBot-d24aeba8ba075ed3120868c91430c2788c6dcd5e/config.py, lyutobor/oneuibot/OneuiBot-d24aeba8ba075ed3120868c91430c2788c6dcd5e/phone_logic.py]
+
+                    # Обновляем эти временные метки в базе данных
+                    update_battery_times_success = await database.update_phone_status_fields( # [fileId: lyutobor/oneuibot/OneuiBot-d24aeba8ba075ed3120868c91430c2788c6dcd5e/database.py, lyutobor/oneuibot/OneuiBot-d24aeba8ba075ed3120868c91430c2788c6dcd5e/phone_logic.py]
+                        phone_inv_id_to_repair, fields_to_update_battery_times, conn_ext=conn
+                    )
+                    if not update_battery_times_success:
+                        logger.error(f"RepairPhone: Не удалось обновить временные метки батареи для телефона ID {phone_inv_id_to_repair} после ремонта батареи.")
+                        # Можно решить, нужно ли здесь прерывать операцию или нет.
+                    else:
+                        logger.info(f"RepairPhone: Временные метки батареи для телефона ID {phone_inv_id_to_repair} успешно обновлены после ремонта батареи.")
+                # >>> КОНЕЦ ИЗМЕНЕНИЙ ДЛЯ РЕМОНТА БАТАРЕИ <<<
+
                  new_balance_after_repair = current_balance_before_op - repair_work_cost_calc
 
                  await message.reply(
