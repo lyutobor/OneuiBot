@@ -310,7 +310,7 @@ async def get_global_family_reminders_for_user(user_id: int, bot: Bot) -> List[s
             family_members_ally = await database.get_family_members(family_membership['family_id'])
             member_count_ally = len(family_members_ally)
             
-            reminder_text = f"👪 Семья: <b>{family_name_ally}</b> | Роль: {role_ally} | Бойцы: {member_count_ally}/{Config.FAMILY_MAX_MEMBERS}"
+            reminder_text = f"👪 Семья: <b>{family_name_ally}</b>/{Config.FAMILY_MAX_MEMBERS}"
 
             # Проверка активного соревнования
             active_comp = await database.get_active_family_competition()
