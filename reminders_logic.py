@@ -1,10 +1,11 @@
 # reminders_logic.py
+import asyncio # Убедимся, что asyncio импортирован, если используется в обработке длинных сообщений
 import html
 import logging
 from datetime import datetime, timedelta, timezone as dt_timezone
 from typing import List, Optional
 
-from aiogram import Router, Bot, F # F добавлен для возможного использования в будущем, пока не используется
+from aiogram import Router, Bot, F 
 from aiogram.filters import Command
 from aiogram.types import Message
 from pytz import timezone as pytz_timezone
@@ -28,11 +29,12 @@ COMMAND_ALIASES = ["напоминания", "reminders", "todo", "ежедне�
 
 async def get_chat_specific_reminders_for_user(user_id: int, chat_id: int, bot: Bot) -> List[str]:
     """
-    Собирает список актуальных напоминаний для пользователя В УКАЗАННОМ ЧАТЕ (без телефонных).
+    Собирает список актуальных напоминаний для пользователя В УКАЗАННОМ ЧАТЕ.
+    Напоминания о семье и телефоне теперь обрабатываются глобально.
     """
     reminders_oneui: List[str] = []
     reminders_onecoin: List[str] = []
-    reminders_other: List[str] = [] # Для бонуса, рулетки, ЧР, бизнеса, соревнований
+    reminders_other: List[str] = [] 
     
     now_utc = datetime.now(dt_timezone.utc)
     local_tz = pytz_timezone(Config.TIMEZONE)
@@ -199,9 +201,7 @@ async def get_chat_specific_reminders_for_user(user_id: int, chat_id: int, bot: 
             if bm_slots_are_current:
                 reminders_other.append(f"✅ Черный Рынок (/bm) ждет! (Товары уже обновлены)")
             else:
-                reminders_other.append(f"✅ Загляни на Черный Рынок (/bm)! Обновится при первом входе после {bm_reset_hour_local:02d}:00 {local_tz.zone}.")
-        # else: # Если доступ закрыт, не выводим ничего (согласно запросу)
-        #    pass 
+                reminders_other.append(f"✅ Загляни на Черный Рынок (/bm)! Обновится при первом входе после {bm_reset_hour_local:02d}:00 {local_tz.zone}.") # type: ignore
     except Exception as e:
         logger.error(f"Reminders: Ошибка проверки /bm для user {user_id} chat {chat_id}: {e}")
         reminders_other.append("⚠️ Не удалось проверить статус Черного Рынка (/bm).")
@@ -231,18 +231,7 @@ async def get_chat_specific_reminders_for_user(user_id: int, chat_id: int, bot: 
         logger.error(f"Reminders: Ошибка проверки бизнесов/банка для user {user_id} chat {chat_id}: {e}")
         reminders_other.append("⚠️ Не удалось проверить статус бизнесов и банка.")
 
-    # 7. Напоминание о семейных соревнованиях
-    try:
-        active_comp = await database.get_active_family_competition()
-        if active_comp:
-            user_family = await database.get_user_family_membership(user_id)
-            if user_family:
-                reminders_other.append(f"🏆 Идет соревнование семей! Внеси свой вклад (/familystats). Очки ~ после {Config.RESET_HOUR:02d}:05 {local_tz.zone}.")
-    except Exception as e:
-        logger.error(f"Reminders: Ошибка проверки соревнований для user {user_id} chat {chat_id}: {e}")
-        reminders_other.append("⚠️ Не удалось проверить статус соревнований семей.")
-    
-    # Телефонные напоминания теперь обрабатываются в отдельной функции для глобального вывода
+    # Напоминание о семье и соревнованиях УБРАНО ОТСЮДА, будет глобальным
 
     return reminders_oneui + reminders_onecoin + reminders_other
 
@@ -253,7 +242,7 @@ async def get_global_phone_reminders_for_user(user_id: int, bot: Bot) -> List[st
     """
     global_phone_reminders: List[str] = []
     now_utc = datetime.now(dt_timezone.utc)
-    local_tz = pytz_timezone(Config.TIMEZONE)
+    # local_tz = pytz_timezone(Config.TIMEZONE) # Не используется здесь напрямую
 
     try:
         user_phones = await database.get_user_phones(user_id, active_only=True)
@@ -290,7 +279,8 @@ async def get_global_phone_reminders_for_user(user_id: int, bot: Bot) -> List[st
                             is_battery_broken_rem = True
                     
                     if not is_battery_broken_rem: 
-                        global_phone_reminders.append(f"🔋 Телефон \"{html.escape(phone_name_rem)}\" (ID: {phone_id_rem}) разряжен (0%)! (<code>/chargephone {phone_id_rem}</code>)")
+                        # ИЗМЕНЕННЫЙ ФОРМАТ СООБЩЕНИЯ
+                        global_phone_reminders.append(f"Телефон \"{html.escape(phone_name_rem)}\" (ID: {phone_id_rem})\n     └ разряжен (0%)! (<code>/chargephone {phone_id_rem}</code>)")
 
             # Страховка
             insurance_until_utc_rem_val = phone.get('insurance_active_until')
@@ -307,6 +297,36 @@ async def get_global_phone_reminders_for_user(user_id: int, bot: Bot) -> List[st
     
     return global_phone_reminders
 
+async def get_global_family_reminders_for_user(user_id: int, bot: Bot) -> List[str]:
+    """
+    Собирает ОБЩЕЕ напоминание по семье/клану пользователя.
+    """
+    global_family_reminders: List[str] = []
+    try:
+        family_membership = await database.get_user_family_membership(user_id)
+        if family_membership:
+            family_name_ally = html.escape(family_membership.get('family_name', 'Неизвестный клан'))
+            role_ally = "👑 Лидер" if family_membership.get('leader_id') == user_id else "Боец"
+            family_members_ally = await database.get_family_members(family_membership['family_id'])
+            member_count_ally = len(family_members_ally)
+            
+            reminder_text = f"👪 Клан: <b>{family_name_ally}</b> | Роль: {role_ally} | Бойцы: {member_count_ally}/{Config.FAMILY_MAX_MEMBERS}"
+
+            # Проверка активного соревнования
+            active_comp = await database.get_active_family_competition()
+            if active_comp:
+                local_tz_comp = pytz_timezone(Config.TIMEZONE)
+                reminder_text += f" (🏆 Идет соревнование! Внеси вклад: /familystats. Очки ~ после {Config.RESET_HOUR:02d}:05 {local_tz_comp.zone})" # type: ignore
+            
+            global_family_reminders.append(reminder_text)
+        # else: # Можно добавить, если не в клане, но обычно это не требуется как "напоминание"
+        #     global_family_reminders.append("👪 Вы не состоите в клане.") 
+    except Exception as e:
+        logger.error(f"Reminders: Ошибка проверки глобального напоминания по семье для user {user_id}: {e}")
+        global_family_reminders.append("⚠️ Не удалось проверить статус клана.")
+    return global_family_reminders
+
+
 @reminders_router.message(Command(*COMMAND_ALIASES, ignore_case=True))
 async def cmd_show_reminders(message: Message, bot: Bot):
     if not message.from_user:
@@ -320,26 +340,26 @@ async def cmd_show_reminders(message: Message, bot: Bot):
     
     all_reminders_text_parts: List[str] = []
     any_reminders_found_globally_or_in_chat = False 
+    active_chat_ids_for_dm: List[int] = [] # Для корректного отображения "Удачи" в ЛС
 
     try:
         if message.chat.type == "private":
-            active_chat_ids = await database.get_all_user_activity_chats(user_id) 
+            active_chat_ids_for_dm = await database.get_all_user_activity_chats(user_id) 
             
-            if not active_chat_ids:
+            if not active_chat_ids_for_dm:
                 all_reminders_text_parts.append(f"📌 {user_link}, у тебя пока нет активностей ни в одном из отслеживаемых чатов.")
             else:
-                all_reminders_text_parts.append(f"📌 {user_link}, вот твои глобальные напоминания:")
+                all_reminders_text_parts.append(f"📌 {user_link}, вот твои напоминания:") # Общий заголовок для ЛС
                 
                 chat_infos = {}
-                for chat_id_db_loop in active_chat_ids: # Используем другое имя переменной
+                for chat_id_db_loop in active_chat_ids_for_dm: 
                     try:
                         chat_obj = await bot.get_chat(chat_id_db_loop)
                         chat_infos[chat_id_db_loop] = chat_obj
                     except Exception:
                         chat_infos[chat_id_db_loop] = None
                 
-                # Сначала выводим напоминания по чатам
-                for chat_id_from_db in active_chat_ids:
+                for chat_id_from_db in active_chat_ids_for_dm:
                     chat_display_name = f"Чат ID: {chat_id_from_db}"
                     chat_info = chat_infos.get(chat_id_from_db)
                     
@@ -349,7 +369,7 @@ async def cmd_show_reminders(message: Message, bot: Bot):
                         elif chat_info.username: 
                             chat_display_name = f"@{chat_info.username}"
                         elif chat_info.type == "private" and chat_id_from_db == user_id: 
-                             chat_display_name = "Личные сообщения" 
+                             chat_display_name = "Личные сообщения (с этим ботом)" 
                     
                     reminders_for_chat = await get_chat_specific_reminders_for_user(user_id, chat_id_from_db, bot)
                     if reminders_for_chat:
@@ -357,37 +377,62 @@ async def cmd_show_reminders(message: Message, bot: Bot):
                         all_reminders_text_parts.append(f"\n\n🔔<b>В чате {chat_display_name}:</b>")
                         all_reminders_text_parts.extend([f"  • {reminder}" for reminder in reminders_for_chat])
             
-            # Затем добавляем глобальные напоминания по телефонам (только для ЛС)
+            # Глобальные напоминания (семья, потом телефоны)
+            global_family_reminders_list = await get_global_family_reminders_for_user(user_id, bot)
+            if global_family_reminders_list:
+                any_reminders_found_globally_or_in_chat = True
+                all_reminders_text_parts.append("\n\n🤝 <b>Альянс:</b>")
+                all_reminders_text_parts.extend([f"  • {reminder}" for reminder in global_family_reminders_list])
+
             global_phone_reminders_list = await get_global_phone_reminders_for_user(user_id, bot)
             if global_phone_reminders_list:
                 any_reminders_found_globally_or_in_chat = True 
                 all_reminders_text_parts.append("\n\n📱 <b>Общие по телефонам:</b>")
                 all_reminders_text_parts.extend([f"  • {reminder}" for reminder in global_phone_reminders_list])
             
-            if active_chat_ids and not any_reminders_found_globally_or_in_chat : 
+            if active_chat_ids_for_dm and not any_reminders_found_globally_or_in_chat : 
                  all_reminders_text_parts.append("\nПохоже, на сегодня важных напоминаний нет.")
 
         else: # Если команда вызвана не в ЛС, а в обычном чате
             current_chat_id = message.chat.id 
-            reminders_list_chat = await get_chat_specific_reminders_for_user(user_id, current_chat_id, bot)
-            if not reminders_list_chat:
-                all_reminders_text_parts.append(f"📌 {user_link}, на сегодня важных напоминаний в этом чате нет. Возможно, все уже сделано или сегодня просто выходной! 🎉")
-            else:
-                any_reminders_found_globally_or_in_chat = True 
-                all_reminders_text_parts.append(f"📌 {user_link}, вот твои актуальные напоминания в этом чате:\n")
-                all_reminders_text_parts.extend([f"• {reminder}" for reminder in reminders_list_chat])
+            reminders_list_chat_specific = await get_chat_specific_reminders_for_user(user_id, current_chat_id, bot)
             
-            all_reminders_text_parts.append("\n💡 Используй <code>/напоминания</code> в личных сообщениях со мной, чтобы увидеть напоминания по всем чатам!")
+            global_family_reminders_list_group = await get_global_family_reminders_for_user(user_id, bot)
+            global_phone_reminders_list_group = await get_global_phone_reminders_for_user(user_id, bot)
+
+            if not reminders_list_chat_specific and not global_family_reminders_list_group and not global_phone_reminders_list_group:
+                all_reminders_text_parts.append(f"📌 {user_link}, на сегодня важных напоминаний нет. Возможно, все уже сделано или сегодня просто выходной! 🎉")
+            else:
+                any_reminders_found_globally_or_in_chat = True
+                all_reminders_text_parts.append(f"📌 {user_link}, вот твои актуальные напоминания:\n")
+
+                if reminders_list_chat_specific:
+                    all_reminders_text_parts.append("🔔 <b>В этом чате:</b>")
+                    all_reminders_text_parts.extend([f"  • {reminder}" for reminder in reminders_list_chat_specific])
+                
+                if global_family_reminders_list_group:
+                    if reminders_list_chat_specific: all_reminders_text_parts.append("") 
+                    all_reminders_text_parts.append("🤝 <b>Альянс:</b>")
+                    all_reminders_text_parts.extend([f"  • {reminder}" for reminder in global_family_reminders_list_group])
+
+                if global_phone_reminders_list_group:
+                    if reminders_list_chat_specific or global_family_reminders_list_group: all_reminders_text_parts.append("")
+                    all_reminders_text_parts.append("📱 <b>Общие по телефонам:</b>")
+                    all_reminders_text_parts.extend([f"  • {reminder}" for reminder in global_phone_reminders_list_group])
+            
+            all_reminders_text_parts.append("\n💡 Используй <code>/напомни</code> в личных сообщениях со мной, чтобы увидеть напоминания по всем чатам (включая специфичные для других чатов)!")
         
-        if all_reminders_text_parts : 
+        # Футеры
+        if all_reminders_text_parts: # Проверяем, есть ли вообще что-то в списке перед добавлением футеров
             if any_reminders_found_globally_or_in_chat: 
                  all_reminders_text_parts.append("\n\n<i>Абоба</i>")
-            elif message.chat.type == "private" and not any_reminders_found_globally_or_in_chat and active_chat_ids : 
+            elif message.chat.type == "private" and not any_reminders_found_globally_or_in_chat and active_chat_ids_for_dm: 
                  all_reminders_text_parts.append("\n\n<i>Удачи в твоих начинаниях!</i>")
 
 
         response_text = "\n".join(all_reminders_text_parts)
         
+        # Логика отправки сообщения (остается прежней)
         MAX_MESSAGE_LENGTH = 4096
         if len(response_text) > MAX_MESSAGE_LENGTH:
             parts_to_send = []
@@ -407,15 +452,16 @@ async def cmd_show_reminders(message: Message, bot: Bot):
             
             for i, part_msg_text in enumerate(parts_to_send):
                 if part_msg_text.strip():
+                    # Используем message.answer для последующих частей, чтобы не отвечать на исходное сообщение несколько раз
                     if i == 0:
                         await message.reply(part_msg_text, parse_mode="HTML", disable_web_page_preview=True)
                     else:
                         await message.answer(part_msg_text, parse_mode="HTML", disable_web_page_preview=True)
-                    await asyncio.sleep(0.2) 
+                    await asyncio.sleep(0.2) # type: ignore
         else: 
             if processing_msg: 
                 await processing_msg.edit_text(response_text, parse_mode="HTML", disable_web_page_preview=True)
-            else: 
+            else: # Если processing_msg по какой-то причине не существует
                 await message.reply(response_text, parse_mode="HTML", disable_web_page_preview=True)
 
     except Exception as e:

@@ -831,6 +831,8 @@ async def on_startup(dispatcher: Dispatcher):
     logger.info("Stats command handlers registered.")
     logger.info("Black Market command handlers registered.")
     logger.info("All command handlers registered.")
+    
+    await send_telegram_log(bot, "✅ <b>Бот успешно запущен и готов к работе!</b>")
 
     try:
         app_timezone = None # Инициализируем переменную перед блоком if
