@@ -3071,7 +3071,7 @@ async def remove_item_from_user_inventory(
             )
             return result == "DELETE 1"
 
-        elif item_type in ['component', 'memory_module']:
+        elif item_type in ['component', 'memory_module', 'battery']:
             # Для компонентов и модулей памяти - уменьшаем quantity или удаляем запись
             # Найдем запись (должна быть одна из-за нашей логики добавления)
             item_record = await conn.fetchrow(
