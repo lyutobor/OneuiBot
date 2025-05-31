@@ -224,7 +224,7 @@ async def get_chat_specific_reminders_for_user(user_id: int, chat_id: int, bot: 
                 else: 
                     bank_details_str = f"(<code>{bank_balance_rem:,}</code> OC, вместимость не определена)"
                 
-                reminders_other.append(f"💰 В банке {bank_details_str}. \n     └ Можешь вывести средства: <code>/withdrawbank all</code>")
+                reminders_other.append(f"💰 В банке {bank_details_str}. \n     └ Вывод: <code>/withdrawbank all</code>")
             elif not user_bank_data or user_bank_data.get('current_balance', 0) == 0 :
                  reminders_other.append(f"🏦 Твой банк (<code>/mybank</code>) пока пуст. Доход с бизнесов зачисляется туда автоматически.")
     except Exception as e:
