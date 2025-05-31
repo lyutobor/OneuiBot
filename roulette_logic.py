@@ -589,7 +589,7 @@ async def _apply_prize_and_get_message(
                                 chat_id_acquired_in=chat_id,
                                 phone_model_key=won_phone_key,
                                 color=chosen_color,
-                                purchase_price_onecoins=0,
+                                purchase_price=0,
                                 purchase_date_utc=current_time_utc_param,
                                 initial_memory_gb=initial_memory_gb,
                                 is_contraband=False
