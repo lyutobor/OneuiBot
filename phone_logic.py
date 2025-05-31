@@ -374,23 +374,41 @@ async def cmd_itemshop(message: Message, command: CommandObject, bot: Bot):
             else:
                 for key, case_info in temp_case_list_for_sorting:
                     name = html.escape(case_info.get("name", key))
-                    base_price = case_info.get("price", 0) # Базовая цена
-                    actual_price = await get_current_price(base_price) # <--- ИЗМЕНЕНИЕ
+                    base_price = case_info.get("price", 0)
+                    actual_price = await get_current_price(base_price) # Рассчитываем актуальную цену с учетом инфляции
                     protection = case_info.get("break_chance_reduction_percent", 0)
 
-                    bonuses_text_parts = []
-                    if case_info.get("battery_days_increase"): bonuses_text_parts.append(f"+{case_info['battery_days_increase']}д. заряда")
-                    if case_info.get("oneui_version_bonus_percent"): bonuses_text_parts.append(f"+{case_info['oneui_version_bonus_percent']}% к OneUI")
-                    if case_info.get("onecoin_bonus_percent"): bonuses_text_parts.append(f"+{case_info['onecoin_bonus_percent']}% к OneCoin")
-                    if case_info.get("market_discount_percent"): bonuses_text_parts.append(f"-{case_info['market_discount_percent']}% на рынке")
-                    if case_info.get("bonus_roulette_luck_percent"): bonuses_text_parts.append(f"+{case_info['bonus_roulette_luck_percent']}% удачи в рулетке")
+                    # Начинаем формировать строки для текущего чехла
+                    item_display_lines = [] # Список для строк описания одного чехла
+                    
+                    # Основная информация: Название, цена, ключ
+                    item_display_lines.append(f"  • <b>{name}</b> - {actual_price} OC (Ключ: <code>{key}</code>)")
+                    
+                    # Информация о защите
+                    item_display_lines.append(f"    🛡️ Защита: {protection}%")
 
-                    bonus_str_suffix = ""
-                    if bonuses_text_parts:
-                        bonus_str_suffix = f"; {', '.join(bonuses_text_parts)}"
+                    # Добавляем информацию о бонусах, каждый на новой строке
+                    if case_info.get("battery_days_increase"):
+                        item_display_lines.append(f"    🔋 +{case_info['battery_days_increase']} д. к заряду")
+                    if case_info.get("oneui_version_bonus_percent"):
+                        item_display_lines.append(f"    📱 +{case_info['oneui_version_bonus_percent']}% к OneUI")
+                    if case_info.get("onecoin_bonus_percent"):
+                        item_display_lines.append(f"    💰 +{case_info['onecoin_bonus_percent']}% к OneCoin")
+                    if case_info.get("market_discount_percent"):
+                        item_display_lines.append(f"    🛒 -{case_info['market_discount_percent']:.1f}% на рынке") # Используем .1f для возможного дробного процента
+                    if case_info.get("bonus_roulette_luck_percent"):
+                        item_display_lines.append(f"    🎰 +{case_info['bonus_roulette_luck_percent']:.1f}% удачи в рулетке") # Используем .1f
 
-                    case_lines.append(f"  • {name} - {actual_price} OC (Защита: {protection}%{bonus_str_suffix}) (Ключ: <code>{key}</code>)")
-                response_parts.extend(case_lines)
+                    # Объединяем все строки для одного чехла через перевод строки
+                    # и добавляем в общий список строк для вывода (case_lines)
+                    case_lines.append("\n".join(item_display_lines))
+                    case_lines.append("") # Добавляем пустую строку после каждого чехла для лучшего визуального разделения
+                
+                # Удаляем последнюю пустую строку, если она есть, чтобы не было лишнего отступа в конце списка
+                if case_lines and not case_lines[-1].strip():
+                    case_lines.pop()
+
+                response_parts.extend(case_lines) # Добавляем строки чехлов в общий ответ
             response_parts.append("\n  Для покупки чехла: /buyitem КЛЮЧ_ЧЕХЛА")
         else:
             response_parts.append(f"Неверная серия для чехлов: {html.escape(sub_category)}. Доступны: A, S, Z.")
