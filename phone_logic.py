@@ -1206,10 +1206,16 @@ async def cmd_purchase_confirm_yes(message: Message, state: FSMContext, bot: Bot
                  broken_component_name_repair = user_data_from_state.get('broken_component_name') # Уже экранировано при записи в state
                  repair_work_cost_calc = user_data_from_state.get('repair_work_cost')
 
+                 # >>>>> ДОБАВИТЬ ЭТУ СТРОКУ ДЛЯ ИНИЦИАЛИЗАЦИИ <<<<<
+                 component_user_item_id_for_repair = user_data_from_state.get('component_user_item_id_for_repair')
+
                  if not all([isinstance(phone_inv_id_to_repair, int), phone_name_to_repair, broken_component_key_repair, broken_component_name_repair, isinstance(repair_work_cost_calc, int)]):
                      await message.reply("Ошибка данных ремонта телефона. Начните сначала.")
                      await state.clear()
                      return
+
+                 # ... (существующие повторные проверки телефона и баланса - ОСТАВЛЯЕМ ИХ) ...
+                 # ... (списание средств - ОСТАВЛЯЕМ) ...
 
                  # Проверяем, что телефон все еще сломан этим компонентом
                  phone_to_repair_check = await database.get_phone_by_inventory_id(phone_inv_id_to_repair, conn_ext=conn)
@@ -1222,37 +1228,41 @@ async def cmd_purchase_confirm_yes(message: Message, state: FSMContext, bot: Bot
                  # Проверяем наличие детали в инвентаре (еще раз, на всякий случай)
                  broken_comp_info = PHONE_COMPONENTS.get(broken_component_key_repair)
                  if not broken_comp_info:
+                     # >>>>> ИСПРАВЛЕНИЕ ОПЕЧАТКИ В broken_component_name_repair_esc (должно быть html.escape(broken_component_name_repair)) <<<<<
                      await message.reply(f"Ошибка: данные для компонента {html.escape(broken_component_key_repair)} не найдены. Ремонт отменен.", parse_mode="HTML")
                      await state.clear()
                      return
                      
                  # --- vvv НОВЫЙ КОД: ПРОВЕРКА КОМПОНЕНТА НА БРАК ---
                  item_for_repair_data_db = None
+                 # Теперь component_user_item_id_for_repair определена (может быть None)
                  if component_user_item_id_for_repair: # Если у нас есть ID конкретного экземпляра компонента
                      item_for_repair_data_db = await database.get_user_item_by_id(component_user_item_id_for_repair, user_id, conn_ext=conn)
                  
-                 if item_for_repair_data_db:
-                     item_custom_data = await database.get_item_custom_data(item_for_repair_data_db['user_item_id'], conn_ext=conn) or {} # Используем новую функцию
+                 if item_for_repair_data_db: # Этот блок теперь корректно зависит от component_user_item_id_for_repair being non-None
+                     item_custom_data = await database.get_item_custom_data(item_for_repair_data_db['user_item_id'], conn_ext=conn) or {} 
                      is_contraband_component = item_custom_data.get("is_bm_contraband", False)
                      is_defective_component = item_custom_data.get("is_defective", False)
 
                      if is_contraband_component and is_defective_component:
-                         # Удаляем бракованный компонент
                          await database.remove_item_from_user_inventory(
                              user_id, broken_component_key_repair, 
                              broken_comp_info.get("component_type", "component"), 
-                             quantity_to_remove=1, # Удаляем 1 шт.
-                             user_item_id_to_remove=item_for_repair_data_db['user_item_id'], # Указываем ID конкретного бракованного
+                             quantity_to_remove=1, 
+                             user_item_id_to_remove=item_for_repair_data_db['user_item_id'], 
                              conn_ext=conn
                          )
+                         # >>>>> ИСПРАВЛЕНИЕ ОПЕЧАТКИ В broken_component_name_repair_esc <<<<<
                          await message.reply(
-                             f"🥷 Ой-ой! Компонент \"<b>{broken_component_name_repair_esc}</b>\" с Чёрного Рынка оказался бракованным и рассыпался в пыль! "
+                             f"🥷 Ой-ой! Компонент \"<b>{html.escape(broken_component_name_repair)}</b>\" с Чёрного Рынка оказался бракованным и рассыпался в пыль! "
                              f"Ремонт не выполнен. Попробуйте найти другую деталь.", parse_mode="HTML"
                          )
-                         await send_telegram_log(bot, f"🚫 Брак ЧР: {user_link} пытался починить \"{broken_component_name_repair_esc}\" бракованной деталью с ЧР. Деталь удалена.")
-                         return # Выходим, транзакция откатится для списания денег за работу, если оно было до
-                 elif component_user_item_id_for_repair: # Если ID был, но предмет не найден
-                     await message.reply(f"Ошибка: выбранная деталь \"{broken_component_name_repair_esc}\" не найдена в вашем инвентаре. Ремонт отменен.", parse_mode="HTML")
+                         # >>>>> ИСПРАВЛЕНИЕ ОПЕЧАТКИ В broken_component_name_repair_esc <<<<<
+                         await send_telegram_log(bot, f"🚫 Брак ЧР: {user_link} пытался починить \"{html.escape(broken_component_name_repair)}\" бракованной деталью с ЧР. Деталь удалена.")
+                         return 
+                 elif component_user_item_id_for_repair: 
+                      # >>>>> ИСПРАВЛЕНИЕ ОПЕЧАТКИ В broken_component_name_repair_esc <<<<<
+                     await message.reply(f"Ошибка: выбранная деталь \"{html.escape(broken_component_name_repair)}\" не найдена в вашем инвентаре. Ремонт отменен.", parse_mode="HTML")
                      return
                  # Если component_user_item_id_for_repair не был передан или предмет не найден,
                  # то старая логика проверки количества user_has_comp_count сработает ниже.
