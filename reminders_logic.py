@@ -310,13 +310,13 @@ async def get_global_family_reminders_for_user(user_id: int, bot: Bot) -> List[s
             family_members_ally = await database.get_family_members(family_membership['family_id'])
             member_count_ally = len(family_members_ally)
             
-            reminder_text = f"👪 Семья: <b>{family_name_ally}</b>/{Config.FAMILY_MAX_MEMBERS}"
+            reminder_text = f"👪 Семья: <b>{family_name_ally}</b>"
 
             # Проверка активного соревнования
             active_comp = await database.get_active_family_competition()
             if active_comp:
                 local_tz_comp = pytz_timezone(Config.TIMEZONE)
-                reminder_text += f" (🏆 Идет соревнование)" # type: ignore
+                reminder_text += f" 🏆 Идет соревнование" # type: ignore
             
             global_family_reminders.append(reminder_text)
         # else: # Можно добавить, если не в клане, но обычно это не требуется как "напоминание"
