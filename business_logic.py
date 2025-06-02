@@ -496,7 +496,7 @@ async def my_bank_command(message: Message, bot: Bot):
         else:
             response_lines.append("\n🎉 Ваш банк достиг максимального уровня!")
 
-        response_lines.append(f"\nЧтобы вывести средства: <code>/withdrawbank [сумма или all]</code>")
+        response_lines.append(f"\nЧтобы вывести средства: <code>/withdrawbank all</code>")
         
         await message.reply("\n".join(response_lines), parse_mode="HTML", disable_web_page_preview=True)
 
