@@ -1232,128 +1232,95 @@ async def oneui_command(message: Message): # Убрал bot: Bot, так как 
                     set_last_used_time_arg = current_utc_time_for_command
             
             # --- ОСНОВНАЯ ЛОГИКА ИЗМЕНЕНИЯ OneUI ---
-            current_db_version = await database.get_user_version(user_id, chat_id_current_message) 
-            base_oneui_change = get_oneui_version_change() # Это "чистый" ролл (то, что "выпало")
-            
-            # Переменные для отслеживания изменений на каждом этапе
-            change_after_protection = base_oneui_change
-            change_after_multiplier = base_oneui_change # Инициализируем базовым изменением
-            
-            # Сообщения для вывода
-            ordered_response_parts: List[str] = []
+            current_db_version = await database.get_user_version(user_id, chat_id_current_message) #
+            base_oneui_change = get_oneui_version_change() #
+            actual_base_change_for_next_steps = base_oneui_change
+            version_change_from_bonus_multiplier_applied = 0.0
+            phone_case_bonus_applied_value = 0.0
 
-            # 0. Сообщение об использованной доп. попытке (если было)
-            if used_extra_attempt_this_time: 
-                ordered_response_parts.append(f"🌀 Использована <b>доп. попытка /oneui</b>! Осталось: {new_extra_attempts_count}.")
-
-            # 1. "Какая версия выпала" - основное изменение
-            main_roll_message_text = f"📉 Обнова не вышла." if base_oneui_change == 0.0 else \
-                                     random.choice(POSITIVE_RESPONSES).replace("%.1f", f"<b>{base_oneui_change:.1f}</b>") if base_oneui_change > 0.0 else \
-                                     random.choice(NEGATIVE_RESPONSES).replace("%.1f", f"<b>{abs(base_oneui_change):.1f}</b>")
-            ordered_response_parts.append(main_roll_message_text)
-
-            # 2. Защита от негативного изменения
             if base_oneui_change < 0 and roulette_status_current and roulette_status_current.get('negative_change_protection_charges', 0) > 0:
                 new_charges = roulette_status_current['negative_change_protection_charges'] - 1
-                await database.update_roulette_status(user_id, chat_id_current_message, {'negative_change_protection_charges': new_charges}) 
-                original_negative_change_for_msg = base_oneui_change 
-                change_after_protection = abs(base_oneui_change) # Изменение инвертируется
-                ordered_response_parts.append(f"🛡️ Сработал <b>заряд защиты</b>! Изменение <code>{original_negative_change_for_msg:.1f}</code> стало <code>+{change_after_protection:.1f}</code>! Зарядов: {new_charges}.")
+                await database.update_roulette_status(user_id, chat_id_current_message, {'negative_change_protection_charges': new_charges}) #
+                original_negative_change = base_oneui_change
+                actual_base_change_for_next_steps = abs(base_oneui_change) 
+                pre_roll_response_parts.append(f"🛡️ Сработал <b>заряд защиты</b>! Изменение <code>{original_negative_change:.1f}</code> стало <code>+{actual_base_change_for_next_steps:.1f}</code>! Зарядов: {new_charges}.")
             
-            # `change_after_multiplier` теперь будет основываться на `change_after_protection`
-            change_after_multiplier = change_after_protection 
+            effective_oneui_change_from_roll_and_protection = actual_base_change_for_next_steps
             
-            # 3. Бонус-множитель и буст от рулетки
-            user_bonus_mult_status = await database.get_user_bonus_multiplier_status(user_id, chat_id_current_message) 
-            bonus_multiplier_value_for_ach = 1.0 
-            
+            user_bonus_mult_status = await database.get_user_bonus_multiplier_status(user_id, chat_id_current_message) #
+            bonus_multiplier_value_for_ach = 1.0 # Для достижений, если множитель не применен
             if user_bonus_mult_status and user_bonus_mult_status.get('current_bonus_multiplier') is not None and not user_bonus_mult_status.get('is_bonus_consumed', True):
-                bonus_multiplier_to_apply = float(user_bonus_mult_status['current_bonus_multiplier'])
-                initial_value_before_current_multiplier = change_after_protection # Значение до применения этого множителя
-
+                bonus_multiplier_value = float(user_bonus_mult_status['current_bonus_multiplier'])
+                bonus_multiplier_value_for_ach = bonus_multiplier_value # Сохраняем для достижений
                 pending_boost_from_roulette = roulette_status_current.get('pending_bonus_multiplier_boost') if roulette_status_current else None
                 if pending_boost_from_roulette is not None:
-                    boost_value = float(pending_boost_from_roulette)
-                    final_multiplier_with_boost = bonus_multiplier_to_apply * boost_value
-                    ordered_response_parts.append(f"🎲 Применен <b>буст x{boost_value:.1f}</b> от рулетки к бонусу (исходный бонус-множитель был x{bonus_multiplier_to_apply:.2f}, стал x{final_multiplier_with_boost:.2f})!")
-                    bonus_multiplier_to_apply = final_multiplier_with_boost 
-                    await database.update_roulette_status(user_id, chat_id_current_message, {'pending_bonus_multiplier_boost': None}) 
-
-                bonus_multiplier_value_for_ach = bonus_multiplier_to_apply 
+                    bonus_multiplier_value *= float(pending_boost_from_roulette)
+                    bonus_multiplier_value_for_ach = bonus_multiplier_value # Обновляем для достижений с учетом буста
+                    await database.update_roulette_status(user_id, chat_id_current_message, {'pending_bonus_multiplier_boost': None}) #
+                    pre_roll_response_parts.append(f"🎲 Применен <b>буст x{float(pending_boost_from_roulette):.1f}</b> от рулетки к бонусу!")
                 
-                change_after_multiplier = initial_value_before_current_multiplier * bonus_multiplier_to_apply 
-                
-                ordered_response_parts.append(f"✨ Применен бонус-множитель <b>x{bonus_multiplier_to_apply:.2f}</b>! (<code>{initial_value_before_current_multiplier:.1f}</code> -> <code>{change_after_multiplier:.1f}</code>)")
-                await database.update_user_bonus_multiplier_status(user_id, chat_id_current_message, user_bonus_mult_status['current_bonus_multiplier'], True, user_bonus_mult_status.get('last_claimed_timestamp')) 
+                change_if_multiplier_applied = effective_oneui_change_from_roll_and_protection * bonus_multiplier_value
+                version_change_from_bonus_multiplier_applied = change_if_multiplier_applied - effective_oneui_change_from_roll_and_protection
+                effective_oneui_change_from_roll_and_protection = change_if_multiplier_applied
+                pre_roll_response_parts.append(f"✨ Применен бонус-множитель <b>x{bonus_multiplier_value:.2f}</b>! (<code>{actual_base_change_for_next_steps:.1f}</code> -> <code>{effective_oneui_change_from_roll_and_protection:.1f}</code>)")
+                await database.update_user_bonus_multiplier_status(user_id, chat_id_current_message, user_bonus_mult_status['current_bonus_multiplier'], True, user_bonus_mult_status.get('last_claimed_timestamp')) #
 
-            # `final_oneui_change_to_apply` инициализируется значением после всех множителей
-            final_oneui_change_to_apply = change_after_multiplier
+            total_version_change_before_phone_bonus = effective_oneui_change_from_roll_and_protection + streak_bonus_version_change
             
-            # 4. Бонус от чехла
-            phone_case_bonus_applied_value = 0.0 # Для лога и сообщения
             try:
-                phone_bonuses = await get_active_user_phone_bonuses(user_id) 
+                phone_bonuses = await get_active_user_phone_bonuses(user_id) #
                 oneui_bonus_percent_from_case = phone_bonuses.get("oneui_version_bonus_percent", 0.0)
                 if oneui_bonus_percent_from_case != 0:
-                    bonus_value_from_case_calc = final_oneui_change_to_apply * (oneui_bonus_percent_from_case / 100.0)
-                    phone_case_bonus_applied_value = bonus_value_from_case_calc 
-                    final_oneui_change_to_apply += phone_case_bonus_applied_value 
-                    ordered_response_parts.append(f"📱 Бонус от чехла <b>{'+' if oneui_bonus_percent_from_case > 0 else ''}{oneui_bonus_percent_from_case:.0f}%</b> ({'+' if phone_case_bonus_applied_value >=0 else ''}{phone_case_bonus_applied_value:.2f})!")
+                    bonus_value_from_case = total_version_change_before_phone_bonus * (oneui_bonus_percent_from_case / 100.0)
+                    phone_case_bonus_applied_value = bonus_value_from_case
+                    final_oneui_change_to_apply = total_version_change_before_phone_bonus + bonus_value_from_case
+                    pre_roll_response_parts.append(f"📱 Бонус от чехла <b>{'+' if oneui_bonus_percent_from_case > 0 else ''}{oneui_bonus_percent_from_case:.0f}%</b> применен!")
+                else:
+                    final_oneui_change_to_apply = total_version_change_before_phone_bonus
             except Exception as e_phone_bonus_main:
                 logger.error(f"OneUI: Error applying phone case bonus for user {user_id}: {e_phone_bonus_main}", exc_info=True)
+                final_oneui_change_to_apply = total_version_change_before_phone_bonus
             
-            # 5. Добавляем бонус от стрика (рассчитан ранее)
-            final_oneui_change_to_apply += streak_bonus_version_change 
-
-            # 6. Сообщение об итоговом изменении OneUI
-            sign_final_change = "+" if final_oneui_change_to_apply >= 0 else ""
-            ordered_response_parts.append(f"<b>Итоговое изменение OneUI: {sign_final_change}{final_oneui_change_to_apply:.1f}</b>")
-
-            # 7. Сообщения о стрике (компенсация, новый уровень, текущий прогресс - рассчитываются в начале)
-            if streak_compensation_message:
-                ordered_response_parts.append(streak_compensation_message)
-            if streak_level_up_message:
-                ordered_response_parts.append(streak_level_up_message)
-            if streak_display_message: # Это основное сообщение о текущем стрике
-                ordered_response_parts.append(f"\n{streak_display_message}")
-
-            # 8. Итоговая версия OneUI
             new_version_final_raw = current_db_version + final_oneui_change_to_apply
             new_version_final_rounded = round(new_version_final_raw, 1)
-            ordered_response_parts.append(f"\n<b>Итоговая версия OneUI: <code>{new_version_final_rounded:.1f}</code>.</b>")
+            
+            main_roll_response_part = f"📉 Обнова не вышла." if base_oneui_change == 0.0 else \
+                                     random.choice(POSITIVE_RESPONSES).replace("%.1f", f"<b>{base_oneui_change:.1f}</b>") if base_oneui_change > 0.0 else \
+                                     random.choice(NEGATIVE_RESPONSES).replace("%.1f", f"<b>{abs(base_oneui_change):.1f}</b>") #
+            pre_roll_response_parts.append(main_roll_response_part)
+            pre_roll_response_parts.append(f"\n<b>Итоговая версия OneUI: <code>{new_version_final_rounded:.1f}</code>.</b>")
 
-            # Обновление БД (версия и монеты от стрика)
-            await database.update_user_version( 
+            await database.update_user_version( #
                 user_id, chat_id_current_message, new_version_final_rounded,
                 user_tg_username, full_name, chat_title_for_db, telegram_chat_public_link,
                 set_last_used_time_utc=set_last_used_time_arg, 
                 force_update_last_used=force_update_last_used_arg
             )
 
-            if streak_bonus_onecoin_change != 0: # Если был бонус OneCoin от стрика
-                await database.update_user_onecoins( 
+            if streak_bonus_onecoin_change != 0:
+                await database.update_user_onecoins( #
                     user_id, chat_id_current_message, streak_bonus_onecoin_change,
                     user_tg_username, full_name, chat_title_for_db
                 )
             
-            # Логика достижений (kwargs_for_achievements нужно будет аккуратно собрать)
             kwargs_for_achievements = {
                 "current_oneui_version": new_version_final_rounded,
-                "current_daily_streak": new_calculated_streak # new_calculated_streak из блока обработки стриков
+                "current_daily_streak": new_calculated_streak
             }
             if user_bonus_mult_status and user_bonus_mult_status.get('current_bonus_multiplier') is not None and \
-               not user_bonus_mult_status.get('is_bonus_consumed', True): # Если бонус-множитель был ПРИМЕНЕН в этой команде
-                kwargs_for_achievements["bonus_multiplier_value"] = bonus_multiplier_value_for_ach # Это итоговый множитель, включая буст
+               not user_bonus_mult_status.get('is_bonus_consumed', True):
+                kwargs_for_achievements["bonus_multiplier_value"] = bonus_multiplier_value_for_ach
                 if bonus_multiplier_value_for_ach == 0.0:
                     kwargs_for_achievements["bonus_multiplier_zero_applied"] = True
-                # Для "Оковы Неудачи" и "Проклятие фортуны" условие target_value < 0 или <= -1.0 соответственно.
-                # bonus_multiplier_negative_value не нужен, т.к. bonus_multiplier_value уже содержит итоговое значение.
+                elif bonus_multiplier_value_for_ach < 0: # Для "Оковы Неудачи", если множитель отрицательный
+                     kwargs_for_achievements["bonus_multiplier_negative_value"] = bonus_multiplier_value_for_ach
 
-            if roulette_status_current: # Обновляем количество доп. попыток для достижений
-                current_extra_attempts_for_ach_oneui = new_extra_attempts_count if used_extra_attempt_this_time else available_extra_oneui_attempts
-                kwargs_for_achievements["oneui_extra_attempts_current_count"] = current_extra_attempts_for_ach_oneui
+
+            if roulette_status_current:
+                current_extra_attempts_for_ach = new_extra_attempts_count if used_extra_attempt_this_time else available_extra_oneui_attempts
+                kwargs_for_achievements["oneui_extra_attempts_current_count"] = current_extra_attempts_for_ach
             
-            await check_and_grant_achievements( 
+            await check_and_grant_achievements( #
                 user_id,
                 chat_id_current_message,
                 message.bot, 
@@ -1361,24 +1328,12 @@ async def oneui_command(message: Message): # Убрал bot: Bot, так как 
                 **kwargs_for_achievements
             )
 
-            # Логгирование деталей
-            # Переменные для лога:
-            # base_oneui_change - чистый ролл
-            # change_after_protection - изменение после возможной защиты
-            # bonus_multiplier_value_for_ach - примененный итоговый множитель (с бустом)
-            # phone_case_bonus_applied_value - абсолютное изменение от чехла
-            # streak_bonus_version_change - абсолютное изменение от стрика
-            # final_oneui_change_to_apply - итоговое суммарное изменение
             logger.info(f"Version for {user_id} in {chat_id_current_message} updated: {current_db_version:.1f} -> {new_version_final_rounded:.1f}. "
-                        f"Details: BaseRoll={base_oneui_change:.1f}, AfterProtect={change_after_protection:.1f}, "
-                        f"AppliedMultiplier={bonus_multiplier_value_for_ach:.2f} (Resulting change from mult: {change_after_multiplier - change_after_protection:.2f}), " # Изменение ТОЛЬКО от множителя
-                        f"PhoneCaseBonusVal={phone_case_bonus_applied_value:.2f}, "
-                        f"StreakVersionBonus={streak_bonus_version_change:.1f}, StreakCoinBonus={streak_bonus_onecoin_change}, "
+                        f"Details: BaseRoll={base_oneui_change:.1f}, ProtEffect={actual_base_change_for_next_steps-base_oneui_change:.1f}, "
+                        f"BonusMultEffect={version_change_from_bonus_multiplier_applied:.2f}, "
+                        f"StreakVersion={streak_bonus_version_change:.1f}, StreakCoin={streak_bonus_onecoin_change}, "
+                        f"PhoneCaseBonus={phone_case_bonus_applied_value:.2f}, "
                         f"TotalAppliedChange={final_oneui_change_to_apply:.2f}")
-            
-            # Отправка сообщения пользователю
-            await message.reply("\n".join(ordered_response_parts), parse_mode="HTML", disable_web_page_preview=True)
-            logger.info(f"/oneui user {user_id} in chat {chat_id_current_message} (thread: {original_message_thread_id}) - SUCCESS (New Format)")
             
             final_response_message_parts = pre_roll_response_parts.copy()
             if streak_compensation_message:
