@@ -1047,7 +1047,6 @@ async def oneui_command(message: Message):
         chat_title_for_db = message.chat.title or f"Чат {chat_id_current_message}"
         if message.chat.username:
             telegram_chat_public_link = f"https://t.me/{message.chat.username}"
-        # ... (ваш код для получения invite_link, если нужен)
 
     current_user_chat_lock = await database.get_user_chat_lock(user_id, chat_id_current_message)
     async with current_user_chat_lock:
@@ -1142,7 +1141,6 @@ async def oneui_command(message: Message):
                     blocked_until_local_str = blocked_until_utc.astimezone(local_tz).strftime('%d.%m %H:%M мск')
                     block_msg_template = random.choice(ONEUI_BLOCKED_PHRASES) #
                     
-                    # --- ИСПРАВЛЕНИЕ: НАЧИСЛЕНИЕ БОНУСОВ СТРИКА ПРИ БЛОКИРОВКЕ ---
                     applied_streak_bonus_text_for_msg = ""
                     if streak_bonus_version_change != 0.0 or streak_bonus_onecoin_change != 0:
                         logger.info(f"OneUI CMD (Blocked): User {user_id} is blocked, but applying streak bonuses: V={streak_bonus_version_change:.1f}, C={streak_bonus_onecoin_change}")
@@ -1172,8 +1170,7 @@ async def oneui_command(message: Message):
                             applied_streak_bonus_text_for_msg = f"\n🔥 Награда за стрик ({bonus_v_str}) начислена!"
                         elif streak_bonus_onecoin_change != 0:
                             applied_streak_bonus_text_for_msg = f"\n🔥 Награда за стрик ({bonus_c_str}) начислена!"
-                    # --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-
+                    
                     temp_streak_info_parts = []
                     if applied_streak_bonus_text_for_msg:
                         temp_streak_info_parts.append(applied_streak_bonus_text_for_msg)
@@ -1239,10 +1236,13 @@ async def oneui_command(message: Message):
             base_oneui_change = get_oneui_version_change() 
             
             change_after_protection = base_oneui_change 
-            # change_after_multiplier = base_oneui_change # Эта переменная не используется далее
             phone_case_bonus_applied_value = 0.0 
             
             ordered_response_parts: List[str] = []
+            
+            # --- Флаг для отслеживания "дополнительных" бонусов ---
+            additional_bonus_applied = False
+            # --- Конец флага ---
 
             if used_extra_attempt_this_time: 
                 ordered_response_parts.append(f"🌀 Использована <b>доп. попытка /oneui</b>! Осталось: {new_extra_attempts_count}.")
@@ -1259,6 +1259,7 @@ async def oneui_command(message: Message):
                 original_negative_change_for_msg = base_oneui_change 
                 actual_base_change_for_next_steps = abs(base_oneui_change) 
                 ordered_response_parts.append(f"🛡️ Сработал <b>заряд защиты</b>! Изменение <code>{original_negative_change_for_msg:.1f}</code> стало <code>+{actual_base_change_for_next_steps:.1f}</code>! Зарядов: {protection_new_charges}.")
+                additional_bonus_applied = True # Защита сработала - это считается доп. эффектом
             
             change_after_protection = actual_base_change_for_next_steps
             effective_oneui_change_from_roll_and_protection = change_after_protection 
@@ -1267,12 +1268,14 @@ async def oneui_command(message: Message):
             bonus_multiplier_value_for_ach = 1.0
             
             if user_bonus_mult_status and user_bonus_mult_status.get('current_bonus_multiplier') is not None and not user_bonus_mult_status.get('is_bonus_consumed', True):
+                additional_bonus_applied = True # Применен активный бонус-множитель
                 bonus_multiplier_base_from_db = float(user_bonus_mult_status['current_bonus_multiplier']) 
                 bonus_multiplier_to_display_and_apply = bonus_multiplier_base_from_db 
 
                 pending_boost_from_roulette = roulette_status_current.get('pending_bonus_multiplier_boost') if roulette_status_current else None
                 pending_boost_from_roulette_original_value_for_msg = bonus_multiplier_base_from_db
                 if pending_boost_from_roulette is not None:
+                    additional_bonus_applied = True # Применен буст от рулетки
                     boost_value = float(pending_boost_from_roulette)
                     bonus_multiplier_to_display_and_apply = bonus_multiplier_base_from_db * boost_value
                     ordered_response_parts.append(f"🎲 Применен <b>буст x{boost_value:.1f}</b> от рулетки к бонусу (исходный бонус-множитель был x{pending_boost_from_roulette_original_value_for_msg:.2f}, стал x{bonus_multiplier_to_display_and_apply:.2f})!")
@@ -1291,6 +1294,7 @@ async def oneui_command(message: Message):
                 phone_bonuses = await get_active_user_phone_bonuses(user_id) #
                 oneui_bonus_percent_from_case = phone_bonuses.get("oneui_version_bonus_percent", 0.0) #
                 if oneui_bonus_percent_from_case != 0:
+                    additional_bonus_applied = True # Применен бонус от чехла
                     bonus_value_from_case_calc = effective_oneui_change_from_roll_and_protection * (oneui_bonus_percent_from_case / 100.0)
                     phone_case_bonus_applied_value = bonus_value_from_case_calc 
                     final_oneui_change_to_apply += phone_case_bonus_applied_value 
@@ -1298,10 +1302,15 @@ async def oneui_command(message: Message):
             except Exception as e_phone_bonus_main:
                 logger.error(f"OneUI: Error applying phone case bonus for user {user_id}: {e_phone_bonus_main}", exc_info=True)
             
+            # Бонус за стрик всегда применяется к final_oneui_change_to_apply,
+            # но не влияет на флаг additional_bonus_applied для отображения "Итоговое изменение"
             final_oneui_change_to_apply += streak_bonus_version_change 
 
-            sign_final_change = "+" if final_oneui_change_to_apply >= 0 else ""
-            ordered_response_parts.append(f"<b>Итоговое изменение OneUI: {sign_final_change}{final_oneui_change_to_apply:.1f}</b>")
+            # --- ИЗМЕНЕНИЕ ЗДЕСЬ: Условное добавление строки "Итоговое изменение" ---
+            if additional_bonus_applied: # Показываем, только если был доп. бонус
+                sign_final_change = "+" if final_oneui_change_to_apply >= 0 else ""
+                ordered_response_parts.append(f"<b>Итоговое изменение OneUI: {sign_final_change}{final_oneui_change_to_apply:.1f}</b>")
+            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
             
             new_version_final_raw = current_db_version + final_oneui_change_to_apply
             new_version_final_rounded = round(new_version_final_raw, 1)
@@ -1362,7 +1371,7 @@ async def oneui_command(message: Message):
                         f"TotalAppliedChange={final_oneui_change_to_apply:.2f}")
             
             await message.reply("\n".join(ordered_response_parts), parse_mode="HTML", disable_web_page_preview=True)
-            logger.info(f"/oneui user {user_id} in chat {chat_id_current_message} (thread: {original_message_thread_id}) - SUCCESS (New Format)")
+            logger.info(f"/oneui user {user_id} in chat {chat_id_current_message} (thread: {original_message_thread_id}) - SUCCESS (Conditional Total Change Display)")
 
         except Exception as e:
             logger.error(f"Error in /oneui for user {user_id} in chat {chat_id_current_message} (thread: {original_message_thread_id}): {e}", exc_info=True)
