@@ -325,7 +325,7 @@ class Config:
     BANK_MAX_LEVEL = 30 # Максимальный уровень банка
     
     # === Настройки Ограбления Банка (/robbank) ===
-    ROBBANK_ALIASES = ["robbank", "ограбитьбанк", "налет", "ограбление", "bankrob"]
+    ROBBANK_ALIASES = ["robbank", "ограбитьбанк", "налет", "ограбление", "налёт", "ограбить", "bankrob"]
     ROBBANK_COOLDOWN_DAYS = 1 # Раз в игровой день
     ROBBANK_RESET_HOUR = 21 # Час сброса кулдауна (используем общий RESET_HOUR)
     ROBBANK_ONEUI_BLOCK_DURATION_DAYS = 2 
