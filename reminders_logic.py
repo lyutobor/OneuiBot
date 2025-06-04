@@ -29,75 +29,68 @@ reminders_router = Router()
 COMMAND_ALIASES = ["напоминания", "reminders", "todo", "ежедневныезадания", "напомни"]
 
 async def get_chat_specific_reminders_for_user(user_id: int, chat_id: int, bot: Bot) -> List[str]:
-    """
-    Собирает список актуальных напоминаний для пользователя В УКАЗАННОМ ЧАТЕ.
-    Напоминания о семье и телефоне теперь обрабатываются глобально.
-    """
     reminders_oneui: List[str] = []
     reminders_onecoin: List[str] = []
-    reminders_other: List[str] = [] 
-    
+    reminders_other: List[str] = []
+
     now_utc = datetime.now(dt_timezone.utc)
     local_tz = pytz_timezone(Config.TIMEZONE) #
     time_format_for_user = "%d.%m %H:%M %Z"
 
     # 1. Напоминание для /oneui
+    oneui_check_successful = True # Флаг для отслеживания успешности проверки
     try:
         on_cooldown_oneui, next_reset_oneui_utc_cooldown = await database.check_cooldown(user_id, chat_id)
-        
-        # Проверка блокировки от /robbank
+
         robbank_status_oneui = await database.get_user_robbank_status(user_id, chat_id)
         robbank_blocked_until_utc: Optional[datetime] = None
         if robbank_status_oneui and robbank_status_oneui.get('robbank_oneui_blocked_until_utc'):
             block_time_val = robbank_status_oneui['robbank_oneui_blocked_until_utc']
-            if isinstance(block_time_val, datetime): # Убедимся, что это datetime
-                 # Гарантируем, что время aware UTC
+            if isinstance(block_time_val, datetime):
                 robbank_blocked_until_utc = block_time_val.replace(tzinfo=dt_timezone.utc) if block_time_val.tzinfo is None else block_time_val.astimezone(dt_timezone.utc)
-
 
         oneui_available_after_utc: Optional[datetime] = None
         oneui_block_reason_msg_part = ""
 
+        # Логика определения фактического времени доступности /oneui
+        final_block_time_utc: Optional[datetime] = None
+
         if robbank_blocked_until_utc and robbank_blocked_until_utc > now_utc:
-            # Если есть блокировка от ограбления, она приоритетнее или суммируется
-            oneui_available_after_utc = robbank_blocked_until_utc
-            # Выбираем случайную фразу блокировки и форматируем ее без информации о стрике,
-            # так как это просто напоминание о доступности команды.
-            # Сама команда /oneui покажет полную информацию о блокировке и стрике.
+            final_block_time_utc = robbank_blocked_until_utc
+            
             selected_block_phrase_template = random.choice(ONEUI_BLOCKED_PHRASES) #
-            # Убираем плейсхолдер {streak_info} из шаблона, так как здесь он не нужен
             simplified_block_phrase = selected_block_phrase_template.split("{streak_info}")[0].strip()
             oneui_block_reason_msg_part = simplified_block_phrase.format(
-                block_time=robbank_blocked_until_utc.astimezone(local_tz).strftime('%d.%m %H:%M') # Упрощенный формат
+                block_time=robbank_blocked_until_utc.astimezone(local_tz).strftime('%d.%m %H:%M')
             )
-            # Заменяем "Вы" на "Команда" или подобное, так как это напоминание
             oneui_block_reason_msg_part = oneui_block_reason_msg_part.replace("Ваше использование /oneui", "Команда /oneui")
-            oneui_block_reason_msg_part = oneui_block_reason_msg_part.replace("Версия не изменилась.", "").strip() # Убираем лишнее
+            oneui_block_reason_msg_part = oneui_block_reason_msg_part.replace("Версия не изменилась.", "").strip()
             oneui_block_reason_msg_part = f" ({oneui_block_reason_msg_part})"
 
 
         if on_cooldown_oneui and next_reset_oneui_utc_cooldown:
-            if oneui_available_after_utc: # Если уже есть блокировка от robbank
-                # Выбираем более позднее время
-                oneui_available_after_utc = max(oneui_available_after_utc, next_reset_oneui_utc_cooldown)
-                # Сообщение о блокировке от robbank уже есть, его не перезаписываем,
-                # так как оно более специфичное. Просто убедились, что учтено самое позднее время.
-            else: # Блокировки от robbank нет, только обычный кулдаун
-                oneui_available_after_utc = next_reset_oneui_utc_cooldown
+            if final_block_time_utc:
+                final_block_time_utc = max(final_block_time_utc, next_reset_oneui_utc_cooldown)
+                # Если уже есть причина блокировки от robbank, не перезаписываем ее,
+                # так как она более специфична, просто убедились что учтено самое позднее время.
+            else:
+                final_block_time_utc = next_reset_oneui_utc_cooldown
         
-        if oneui_available_after_utc and oneui_available_after_utc > now_utc:
-            next_availability_local_str = oneui_available_after_utc.astimezone(local_tz).strftime(time_format_for_user)
-            if "заблокирован" in oneui_block_reason_msg_part.lower(): # Если причина уже указана как блокировка
-                 reminders_oneui.append(f"❌ /oneui {oneui_block_reason_msg_part}")
+        # Формируем сообщение на основе final_block_time_utc
+        if final_block_time_utc and final_block_time_utc > now_utc:
+            next_availability_local_str = final_block_time_utc.astimezone(local_tz).strftime(time_format_for_user)
+            if "заблокирован" in oneui_block_reason_msg_part.lower(): # Если причина уже указана как блокировка от robbank
+                 reminders_oneui.append(f"❌ /oneui{oneui_block_reason_msg_part}") # Добавляем сформированное сообщение о причине
             else: # Иначе, это обычный кулдаун
                  reminders_oneui.append(f"❌ /oneui будет доступен после {next_availability_local_str}.")
-        elif not (robbank_blocked_until_utc and robbank_blocked_until_utc > now_utc): # Если нет активной блокировки от robbank
+        else: # Если нет ни активной блокировки от robbank, ни активного кулдауна
             reminders_oneui.append("✅ /oneui доступен для изменения версии.")
-        # Если есть robbank_block, но он уже прошел, И нет кулдауна, то команда доступна.
-        # Эта логика уже покрывается последним elif.
 
     except Exception as e:
         logger.error(f"Reminders: Ошибка проверки /oneui для user {user_id} chat {chat_id}: {e}", exc_info=True)
+        oneui_check_successful = False # Устанавливаем флаг в False при ошибке
+    
+    if not oneui_check_successful: # Добавляем сообщение об ошибке только если флаг False
         reminders_oneui.append("⚠️ Не удалось проверить статус /oneui.")
 
     # 2. Напоминание для /onecoin
