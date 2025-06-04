@@ -10,10 +10,11 @@ from aiogram.filters import Command
 from aiogram.types import Message
 from pytz import timezone as pytz_timezone
 
-from config import Config
+from config import Config #
 import database 
 from utils import get_user_mention_html
 from business_data import BANK_DATA 
+from phrases import ONEUI_BLOCKED_PHRASES #
 
 from phone_data import PHONE_MODELS as PHONE_MODELS_STANDARD_LIST_REM
 from exclusive_phone_data import EXCLUSIVE_PHONE_MODELS as EXCLUSIVE_PHONE_MODELS_LIST_REM
@@ -37,19 +38,66 @@ async def get_chat_specific_reminders_for_user(user_id: int, chat_id: int, bot: 
     reminders_other: List[str] = [] 
     
     now_utc = datetime.now(dt_timezone.utc)
-    local_tz = pytz_timezone(Config.TIMEZONE)
+    local_tz = pytz_timezone(Config.TIMEZONE) #
     time_format_for_user = "%d.%m %H:%M %Z"
 
     # 1. Напоминание для /oneui
     try:
-        on_cooldown_oneui, next_reset_oneui_utc = await database.check_cooldown(user_id, chat_id)
-        if not on_cooldown_oneui:
+        on_cooldown_oneui, next_reset_oneui_utc_cooldown = await database.check_cooldown(user_id, chat_id)
+        
+        # Проверка блокировки от /robbank
+        robbank_status_oneui = await database.get_user_robbank_status(user_id, chat_id)
+        robbank_blocked_until_utc: Optional[datetime] = None
+        if robbank_status_oneui and robbank_status_oneui.get('robbank_oneui_blocked_until_utc'):
+            block_time_val = robbank_status_oneui['robbank_oneui_blocked_until_utc']
+            if isinstance(block_time_val, datetime): # Убедимся, что это datetime
+                 # Гарантируем, что время aware UTC
+                robbank_blocked_until_utc = block_time_val.replace(tzinfo=dt_timezone.utc) if block_time_val.tzinfo is None else block_time_val.astimezone(dt_timezone.utc)
+
+
+        oneui_available_after_utc: Optional[datetime] = None
+        oneui_block_reason_msg_part = ""
+
+        if robbank_blocked_until_utc and robbank_blocked_until_utc > now_utc:
+            # Если есть блокировка от ограбления, она приоритетнее или суммируется
+            oneui_available_after_utc = robbank_blocked_until_utc
+            # Выбираем случайную фразу блокировки и форматируем ее без информации о стрике,
+            # так как это просто напоминание о доступности команды.
+            # Сама команда /oneui покажет полную информацию о блокировке и стрике.
+            selected_block_phrase_template = random.choice(ONEUI_BLOCKED_PHRASES) #
+            # Убираем плейсхолдер {streak_info} из шаблона, так как здесь он не нужен
+            simplified_block_phrase = selected_block_phrase_template.split("{streak_info}")[0].strip()
+            oneui_block_reason_msg_part = simplified_block_phrase.format(
+                block_time=robbank_blocked_until_utc.astimezone(local_tz).strftime('%d.%m %H:%M') # Упрощенный формат
+            )
+            # Заменяем "Вы" на "Команда" или подобное, так как это напоминание
+            oneui_block_reason_msg_part = oneui_block_reason_msg_part.replace("Ваше использование /oneui", "Команда /oneui")
+            oneui_block_reason_msg_part = oneui_block_reason_msg_part.replace("Версия не изменилась.", "").strip() # Убираем лишнее
+            oneui_block_reason_msg_part = f" ({oneui_block_reason_msg_part})"
+
+
+        if on_cooldown_oneui and next_reset_oneui_utc_cooldown:
+            if oneui_available_after_utc: # Если уже есть блокировка от robbank
+                # Выбираем более позднее время
+                oneui_available_after_utc = max(oneui_available_after_utc, next_reset_oneui_utc_cooldown)
+                # Сообщение о блокировке от robbank уже есть, его не перезаписываем,
+                # так как оно более специфичное. Просто убедились, что учтено самое позднее время.
+            else: # Блокировки от robbank нет, только обычный кулдаун
+                oneui_available_after_utc = next_reset_oneui_utc_cooldown
+        
+        if oneui_available_after_utc and oneui_available_after_utc > now_utc:
+            next_availability_local_str = oneui_available_after_utc.astimezone(local_tz).strftime(time_format_for_user)
+            if "заблокирован" in oneui_block_reason_msg_part.lower(): # Если причина уже указана как блокировка
+                 reminders_oneui.append(f"❌ /oneui {oneui_block_reason_msg_part}")
+            else: # Иначе, это обычный кулдаун
+                 reminders_oneui.append(f"❌ /oneui будет доступен после {next_availability_local_str}.")
+        elif not (robbank_blocked_until_utc and robbank_blocked_until_utc > now_utc): # Если нет активной блокировки от robbank
             reminders_oneui.append("✅ /oneui доступен для изменения версии.")
-        elif next_reset_oneui_utc:
-            next_reset_oneui_local_str = next_reset_oneui_utc.astimezone(local_tz).strftime(time_format_for_user)
-            reminders_oneui.append(f"❌ /oneui будет доступен после {next_reset_oneui_local_str}.")
+        # Если есть robbank_block, но он уже прошел, И нет кулдауна, то команда доступна.
+        # Эта логика уже покрывается последним elif.
+
     except Exception as e:
-        logger.error(f"Reminders: Ошибка проверки /oneui для user {user_id} chat {chat_id}: {e}")
+        logger.error(f"Reminders: Ошибка проверки /oneui для user {user_id} chat {chat_id}: {e}", exc_info=True)
         reminders_oneui.append("⚠️ Не удалось проверить статус /oneui.")
 
     # 2. Напоминание для /onecoin
@@ -57,14 +105,14 @@ async def get_chat_specific_reminders_for_user(user_id: int, chat_id: int, bot: 
         last_claim_onecoin_utc = await database.get_user_daily_onecoin_claim_status(user_id, chat_id)
         current_local_time_onecoin = now_utc.astimezone(local_tz)
         effective_current_claim_day_onecoin = current_local_time_onecoin.date()
-        if current_local_time_onecoin.hour < Config.RESET_HOUR: 
+        if current_local_time_onecoin.hour < Config.RESET_HOUR:  #
             effective_current_claim_day_onecoin -= timedelta(days=1)
 
         can_claim_daily_onecoin = True
         if last_claim_onecoin_utc:
             last_claim_onecoin_local_time = last_claim_onecoin_utc.astimezone(local_tz)
             effective_last_claim_day_onecoin = last_claim_onecoin_local_time.date()
-            if last_claim_onecoin_local_time.hour < Config.RESET_HOUR:
+            if last_claim_onecoin_local_time.hour < Config.RESET_HOUR: #
                 effective_last_claim_day_onecoin -= timedelta(days=1)
             if effective_last_claim_day_onecoin == effective_current_claim_day_onecoin:
                 can_claim_daily_onecoin = False
@@ -72,8 +120,8 @@ async def get_chat_specific_reminders_for_user(user_id: int, chat_id: int, bot: 
         if can_claim_daily_onecoin:
             reminders_onecoin.append("✅ /onecoin доступен.")
         else:
-            next_reset_onecoin_local = current_local_time_onecoin.replace(hour=Config.RESET_HOUR, minute=0, second=0, microsecond=0)
-            if current_local_time_onecoin.hour >= Config.RESET_HOUR:
+            next_reset_onecoin_local = current_local_time_onecoin.replace(hour=Config.RESET_HOUR, minute=0, second=0, microsecond=0) #
+            if current_local_time_onecoin.hour >= Config.RESET_HOUR: #
                 next_reset_onecoin_local += timedelta(days=1)
             reminders_onecoin.append(f"❌ /onecoin будет доступен после {next_reset_onecoin_local.strftime(time_format_for_user)}.")
     except Exception as e:
@@ -85,7 +133,7 @@ async def get_chat_specific_reminders_for_user(user_id: int, chat_id: int, bot: 
         can_claim_bonus = True 
         last_global_reset_bonus_utc = await database.get_setting_timestamp('last_global_bonus_multiplier_reset')
         if not last_global_reset_bonus_utc: 
-            last_global_reset_bonus_utc = now_utc - timedelta(days=(Config.BONUS_MULTIPLIER_COOLDOWN_DAYS * 2))
+            last_global_reset_bonus_utc = now_utc - timedelta(days=(Config.BONUS_MULTIPLIER_COOLDOWN_DAYS * 2)) #
 
         user_bonus_status = await database.get_user_bonus_multiplier_status(user_id, chat_id)
         if user_bonus_status and user_bonus_status.get('last_claimed_timestamp'):
@@ -112,13 +160,13 @@ async def get_chat_specific_reminders_for_user(user_id: int, chat_id: int, bot: 
         else:
             effective_next_reset_bonus_utc = last_global_reset_bonus_utc
             while effective_next_reset_bonus_utc.astimezone(dt_timezone.utc) <= now_utc: 
-                 effective_next_reset_bonus_utc += timedelta(days=Config.BONUS_MULTIPLIER_COOLDOWN_DAYS)
+                 effective_next_reset_bonus_utc += timedelta(days=Config.BONUS_MULTIPLIER_COOLDOWN_DAYS) #
             
             next_reset_bonus_local = effective_next_reset_bonus_utc.astimezone(local_tz).replace(
-                hour=Config.BONUS_MULTIPLIER_RESET_HOUR, minute=2, second=0, microsecond=0
+                hour=Config.BONUS_MULTIPLIER_RESET_HOUR, minute=2, second=0, microsecond=0 #
             )
             while next_reset_bonus_local.astimezone(dt_timezone.utc) <= now_utc: 
-                 next_reset_bonus_local += timedelta(days=Config.BONUS_MULTIPLIER_COOLDOWN_DAYS)
+                 next_reset_bonus_local += timedelta(days=Config.BONUS_MULTIPLIER_COOLDOWN_DAYS) #
             reminders_other.append(f"❌ /bonus будет доступен после {next_reset_bonus_local.strftime(time_format_for_user)}.")
     except Exception as e:
         logger.error(f"Reminders: Ошибка проверки /bonus для user {user_id} chat {chat_id}: {e}")
@@ -134,17 +182,22 @@ async def get_chat_specific_reminders_for_user(user_id: int, chat_id: int, bot: 
 
         last_global_reset_roulette_utc = await database.get_setting_timestamp('last_global_roulette_period_reset')
         if not last_global_reset_roulette_utc:
-            last_global_reset_roulette_utc = now_utc - timedelta(days=(Config.ROULETTE_GLOBAL_COOLDOWN_DAYS * 5))
+            last_global_reset_roulette_utc = now_utc - timedelta(days=(Config.ROULETTE_GLOBAL_COOLDOWN_DAYS * 5)) #
         
         last_spin_chat_utc: Optional[datetime] = None
         if roulette_status_cooldown and roulette_status_cooldown.get('last_roulette_spin_timestamp'):
             last_spin_val = roulette_status_cooldown['last_roulette_spin_timestamp']
-            if isinstance(last_spin_val, datetime):
-                last_spin_chat_utc = last_spin_val.replace(tzinfo=dt_timezone.utc) if last_spin_val.tzinfo is None else last_spin_val.astimezone(dt_timezone.utc)
+            if isinstance(last_spin_val, datetime): # Убедимся, что это datetime
+                if last_spin_val.tzinfo is None: # Гарантируем aware datetime
+                            last_spin_chat_utc = last_spin_val.replace(tzinfo=dt_timezone.utc)
+                else:
+                            last_spin_chat_utc = last_spin_val.astimezone(dt_timezone.utc)
+            else:
+                logger.warning(f"Некорректный тип last_roulette_spin_timestamp ({type(last_spin_val)}) для user {user_id}@{chat_id}")
 
         if last_spin_chat_utc and last_spin_chat_utc >= last_global_reset_roulette_utc.astimezone(dt_timezone.utc):
             roulette_can_spin_free = False
-
+        
         roulette_reminder_msg = ""
         if roulette_can_spin_free:
             roulette_reminder_msg = "✅ /roulette доступен."
@@ -156,13 +209,13 @@ async def get_chat_specific_reminders_for_user(user_id: int, chat_id: int, bot: 
         else:
             effective_next_reset_roulette_utc = last_global_reset_roulette_utc
             while effective_next_reset_roulette_utc.astimezone(dt_timezone.utc) <= now_utc:
-                 effective_next_reset_roulette_utc += timedelta(days=Config.ROULETTE_GLOBAL_COOLDOWN_DAYS)
+                 effective_next_reset_roulette_utc += timedelta(days=Config.ROULETTE_GLOBAL_COOLDOWN_DAYS) #
             
             next_reset_roulette_local = effective_next_reset_roulette_utc.astimezone(local_tz).replace(
-                hour=Config.RESET_HOUR, minute=4, second=0, microsecond=0 
+                hour=Config.RESET_HOUR, minute=4, second=0, microsecond=0 #
             )
             while next_reset_roulette_local.astimezone(dt_timezone.utc) <= now_utc:
-                next_reset_roulette_local += timedelta(days=Config.ROULETTE_GLOBAL_COOLDOWN_DAYS)
+                next_reset_roulette_local += timedelta(days=Config.ROULETTE_GLOBAL_COOLDOWN_DAYS) #
             reminders_other.append(f"❌ /roulette будет доступен после {next_reset_roulette_local.strftime(time_format_for_user)}.")
     except Exception as e:
         logger.error(f"Reminders: Ошибка проверки /roulette для user {user_id} chat {chat_id}: {e}")
@@ -181,9 +234,9 @@ async def get_chat_specific_reminders_for_user(user_id: int, chat_id: int, bot: 
             if last_check_date_bm_val == today_local_date_bm or last_check_date_bm_val == (today_local_date_bm - timedelta(days=1)):
                 current_streak_bm = streak_data_bm.get('current_streak', 0)
 
-        if current_streak_bm >= Config.BLACKMARKET_ACCESS_STREAK_REQUIREMENT:
+        if current_streak_bm >= Config.BLACKMARKET_ACCESS_STREAK_REQUIREMENT: #
             user_bm_offers = await database.get_user_black_market_slots(user_id)
-            bm_reset_hour_local = Config.BLACKMARKET_RESET_HOUR
+            bm_reset_hour_local = Config.BLACKMARKET_RESET_HOUR #
             
             current_period_start_bm_local = now_utc.astimezone(local_tz).replace(hour=bm_reset_hour_local, minute=0, second=0, microsecond=0)
             if now_utc.astimezone(local_tz).hour < bm_reset_hour_local:
@@ -224,14 +277,12 @@ async def get_chat_specific_reminders_for_user(user_id: int, chat_id: int, bot: 
                 else: 
                     bank_details_str = f"(<code>{bank_balance_rem:,}</code> OC, вместимость не определена)"
                 
-                reminders_other.append(f"💰 В банке {bank_details_str}. \n     └ Вывод: <code>/withdrawbank all</code>")
+                reminders_other.append(f"💰 В банке {bank_details_str}. \n     └ Вывод: <code>/withdrawbank all</code>")
             elif not user_bank_data or user_bank_data.get('current_balance', 0) == 0 :
                  reminders_other.append(f"🏦 Твой банк (<code>/mybank</code>) пока пуст. Доход с бизнесов зачисляется туда автоматически.")
     except Exception as e:
         logger.error(f"Reminders: Ошибка проверки бизнесов/банка для user {user_id} chat {chat_id}: {e}")
         reminders_other.append("⚠️ Не удалось проверить статус бизнесов и банка.")
-
-    # Напоминание о семье и соревнованиях УБРАНО ОТСЮДА, будет глобальным
 
     return reminders_oneui + reminders_onecoin + reminders_other
 
@@ -242,7 +293,6 @@ async def get_global_phone_reminders_for_user(user_id: int, bot: Bot) -> List[st
     """
     global_phone_reminders: List[str] = []
     now_utc = datetime.now(dt_timezone.utc)
-    # local_tz = pytz_timezone(Config.TIMEZONE) # Не используется здесь напрямую
 
     try:
         user_phones = await database.get_user_phones(user_id, active_only=True)
@@ -265,7 +315,6 @@ async def get_global_phone_reminders_for_user(user_id: int, bot: Bot) -> List[st
                     else: 
                         phone_name_rem = phone_model_key_rem
 
-            # Зарядка
             battery_dead_after_utc_rem_val = phone.get('battery_dead_after_utc')
             if battery_dead_after_utc_rem_val and isinstance(battery_dead_after_utc_rem_val, datetime):
                 battery_dead_after_utc_aware_rem = battery_dead_after_utc_rem_val.replace(tzinfo=dt_timezone.utc) if battery_dead_after_utc_rem_val.tzinfo is None else battery_dead_after_utc_rem_val.astimezone(dt_timezone.utc)
@@ -279,10 +328,8 @@ async def get_global_phone_reminders_for_user(user_id: int, bot: Bot) -> List[st
                             is_battery_broken_rem = True
                     
                     if not is_battery_broken_rem: 
-                        # ИЗМЕНЕННЫЙ ФОРМАТ СООБЩЕНИЯ
-                        global_phone_reminders.append(f"Телефон \"{html.escape(phone_name_rem)}\" (ID: {phone_id_rem})\n     └ разряжен (0%)! (<code>/chargephone {phone_id_rem}</code>)")
+                        global_phone_reminders.append(f"Телефон \"{html.escape(phone_name_rem)}\" (ID: {phone_id_rem})\n     └ разряжен (0%)! (<code>/chargephone {phone_id_rem}</code>)")
 
-            # Страховка
             insurance_until_utc_rem_val = phone.get('insurance_active_until')
             if insurance_until_utc_rem_val and isinstance(insurance_until_utc_rem_val, datetime):
                 insurance_until_utc_aware_rem = insurance_until_utc_rem_val.replace(tzinfo=dt_timezone.utc) if insurance_until_utc_rem_val.tzinfo is None else insurance_until_utc_rem_val.astimezone(dt_timezone.utc)
@@ -312,15 +359,11 @@ async def get_global_family_reminders_for_user(user_id: int, bot: Bot) -> List[s
             
             reminder_text = f"👪 Семья: <b>{family_name_ally}</b>"
 
-            # Проверка активного соревнования
             active_comp = await database.get_active_family_competition()
             if active_comp:
-                local_tz_comp = pytz_timezone(Config.TIMEZONE)
-                reminder_text += f" 🏆 Идет соревнование" # type: ignore
+                reminder_text += f" 🏆 Идет соревнование" 
             
             global_family_reminders.append(reminder_text)
-        # else: # Можно добавить, если не в клане, но обычно это не требуется как "напоминание"
-        #     global_family_reminders.append("👪 Вы не состоите в клане.") 
     except Exception as e:
         logger.error(f"Reminders: Ошибка проверки глобального напоминания по семье для user {user_id}: {e}")
         global_family_reminders.append("⚠️ Не удалось проверить статус клана.")
@@ -340,7 +383,7 @@ async def cmd_show_reminders(message: Message, bot: Bot):
     
     all_reminders_text_parts: List[str] = []
     any_reminders_found_globally_or_in_chat = False 
-    active_chat_ids_for_dm: List[int] = [] # Для корректного отображения "Удачи" в ЛС
+    active_chat_ids_for_dm: List[int] = [] 
 
     try:
         if message.chat.type == "private":
@@ -349,7 +392,7 @@ async def cmd_show_reminders(message: Message, bot: Bot):
             if not active_chat_ids_for_dm:
                 all_reminders_text_parts.append(f"📌 {user_link}, у тебя пока нет активностей ни в одном из отслеживаемых чатов.")
             else:
-                all_reminders_text_parts.append(f"📌 {user_link}, вот твои напоминания:") # Общий заголовок для ЛС
+                all_reminders_text_parts.append(f"📌 {user_link}, вот твои напоминания:") 
                 
                 chat_infos = {}
                 for chat_id_db_loop in active_chat_ids_for_dm: 
@@ -377,7 +420,6 @@ async def cmd_show_reminders(message: Message, bot: Bot):
                         all_reminders_text_parts.append(f"\n\n🔔<b>В чате {chat_display_name}:</b>")
                         all_reminders_text_parts.extend([f"  • {reminder}" for reminder in reminders_for_chat])
             
-            # Глобальные напоминания (семья, потом телефоны)
             global_family_reminders_list = await get_global_family_reminders_for_user(user_id, bot)
             if global_family_reminders_list:
                 any_reminders_found_globally_or_in_chat = True
@@ -393,7 +435,7 @@ async def cmd_show_reminders(message: Message, bot: Bot):
             if active_chat_ids_for_dm and not any_reminders_found_globally_or_in_chat : 
                  all_reminders_text_parts.append("\nПохоже, на сегодня важных напоминаний нет.")
 
-        else: # Если команда вызвана не в ЛС, а в обычном чате
+        else: 
             current_chat_id = message.chat.id 
             reminders_list_chat_specific = await get_chat_specific_reminders_for_user(user_id, current_chat_id, bot)
             
@@ -422,17 +464,14 @@ async def cmd_show_reminders(message: Message, bot: Bot):
             
             all_reminders_text_parts.append("\n💡 Используй <code>/напомни</code> в личных сообщениях со мной, увидеть напоминания по всем чатам")
         
-        # Футеры
-        if all_reminders_text_parts: # Проверяем, есть ли вообще что-то в списке перед добавлением футеров
+        if all_reminders_text_parts: 
             if any_reminders_found_globally_or_in_chat: 
                  all_reminders_text_parts.append("\n\n<i>Абоба</i>")
             elif message.chat.type == "private" and not any_reminders_found_globally_or_in_chat and active_chat_ids_for_dm: 
                  all_reminders_text_parts.append("\n\n<i>Удачи в твоих начинаниях!</i>")
 
-
         response_text = "\n".join(all_reminders_text_parts)
         
-        # Логика отправки сообщения (остается прежней)
         MAX_MESSAGE_LENGTH = 4096
         if len(response_text) > MAX_MESSAGE_LENGTH:
             parts_to_send = []
@@ -452,7 +491,6 @@ async def cmd_show_reminders(message: Message, bot: Bot):
             
             for i, part_msg_text in enumerate(parts_to_send):
                 if part_msg_text.strip():
-                    # Используем message.answer для последующих частей, чтобы не отвечать на исходное сообщение несколько раз
                     if i == 0:
                         await message.reply(part_msg_text, parse_mode="HTML", disable_web_page_preview=True)
                     else:
@@ -461,7 +499,7 @@ async def cmd_show_reminders(message: Message, bot: Bot):
         else: 
             if processing_msg: 
                 await processing_msg.edit_text(response_text, parse_mode="HTML", disable_web_page_preview=True)
-            else: # Если processing_msg по какой-то причине не существует
+            else: 
                 await message.reply(response_text, parse_mode="HTML", disable_web_page_preview=True)
 
     except Exception as e:
