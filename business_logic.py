@@ -736,7 +736,7 @@ async def hire_staff_command(message: Message, command: CommandObject, bot: Bot)
                 )
                 return
 
-            purchase_price_for_staff = level_info['price'] # Цена бизнеса на текущем уровне
+            purchase_price_for_staff = level_info.get('price') or level_info.get('upgrade_cost') # Цена бизнеса на текущем уровне
             cost_per_staff = int(purchase_price_for_staff * Config.BUSINESS_STAFF_COST_MULTIPLIER)
             total_cost = cost_per_staff * amount_to_hire
 
@@ -1696,3 +1696,4 @@ async def process_daily_business_income_and_events(bot: Bot):
 def setup_business_handlers(dp):
     dp.include_router(business_router)
     print("Обработчики команд для Бизнесов и Банка зарегистрированы.")
+
