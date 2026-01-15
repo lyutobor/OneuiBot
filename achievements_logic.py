@@ -699,10 +699,10 @@ async def cmd_select_achievement(message: Message, command: CommandObject, bot: 
                 ach_info = Config.ACHIEVEMENTS_DATA.get(ach_key)
                 if ach_info:
                     display_name = ach_info['icon'] + " " + ach_info['name']
-                    response_lines.append(f"  {i + 1}. {display_name} (Ключ: <code>{ach_key}</code>)")
+                    response_lines.append(f"  {i + 1}. {display_name}")
                 else: # Добавим лог, если достижение в БД есть, а в конфиге нет
                     logger.warning(f"Achievement key '{ach_key}' for user {user_id} found in DB but not in Config.ACHIEVEMENTS_DATA.")
-                    response_lines.append(f"  {i + 1}. ❓ Неизвестное достижение (Ключ: <code>{ach_key}</code>)")
+                    response_lines.append(f"  {i + 1}. ❓ Неизвестное достижение")
 
 
             await message.reply("\n".join(response_lines), parse_mode="HTML", disable_web_page_preview=True)
@@ -781,5 +781,6 @@ def setup_achievements_handlers(dp: Router):
     """Регистрирует обработчики команд для достижений."""
     dp.include_router(achievements_router)
     logger.info("Обработчики команд достижений зарегистрированы.")
+
 
 
