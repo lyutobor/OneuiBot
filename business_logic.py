@@ -7,7 +7,7 @@ from typing import Optional, List, Dict, Any, Tuple
 from pytz import timezone
 from achievements_logic import check_and_grant_achievements 
 
-from aiogram import Router, Bot
+from aiogram import Router, Bot, F
 from aiogram.filters import Command, CommandObject
 from aiogram.types import Message, CallbackQuery # CallbackQuery понадобится для интерактивных кнопок
 
@@ -363,7 +363,8 @@ async def business_shop_command(message: Message):
 
     await message.reply("\n".join(response_lines), parse_mode="HTML", disable_web_page_preview=True)
 
-@business_router.message(Command(
+# Список команд-триггеров (и с слэшем, и без)
+MY_BUSINESSES_TRIGGERS = {
     "mybusinesses", "моибизнесы", 
     "мойбизнес", "бизнесстатус", 
     "бизнесы", "биз", "biz", "mybiz", 
@@ -371,10 +372,13 @@ async def business_shop_command(message: Message):
     "моиактивы", "активы", "assets",
     "империя", "empire",
     "предприятия", "моипредприятия",
-    "statbiz", "статбиз",
-    ignore_case=True
-))
+    "statbiz", "статбиз"
+}
+
+@business_router.message(Command(*MY_BUSINESSES_TRIGGERS, ignore_case=True))
+@business_router.message(F.text.lower().in_(MY_BUSINESSES_TRIGGERS))
 async def my_businesses_command(message: Message, bot: Bot):
+    # Дальше код функции остается без изменений...
     if not message.from_user:
         await message.reply("Не могу определить пользователя.")
         return
@@ -1706,5 +1710,6 @@ async def process_daily_business_income_and_events(bot: Bot):
 def setup_business_handlers(dp):
     dp.include_router(business_router)
     print("Обработчики команд для Бизнесов и Банка зарегистрированы.")
+
 
 
