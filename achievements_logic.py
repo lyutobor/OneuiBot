@@ -690,9 +690,9 @@ async def cmd_select_achievement(message: Message, command: CommandObject, bot: 
 
             response_lines = [f"🏆 <b>{user_link}, выберите достижение для профиля.</b> 🏆"]
             response_lines.append("---")
-            response_lines.append("Введите `ID` или `Ключ` достижения. Используйте <code>/selectachievement</code> [ID/Ключ]`")
-            response_lines.append("Или `/selectachievement none`, чтобы сбросить выбранное.")
-            response_lines.append("\n<b>Ваши полученные достижения (для выбора по ID):</b>")
+            response_lines.append("Введите `Номер` достижения. Используйте <code>/selectachievement</code> [Номер]`")
+            response_lines.append("Или <code>/selectachievement none</code>, чтобы сбросить выбранное.")
+            response_lines.append("\n<b>Ваши полученные достижения:</b>")
 
             for i, ach_record in enumerate(user_achievements):
                 ach_key = ach_record['achievement_key']
@@ -781,3 +781,4 @@ def setup_achievements_handlers(dp: Router):
     """Регистрирует обработчики команд для достижений."""
     dp.include_router(achievements_router)
     logger.info("Обработчики команд достижений зарегистрированы.")
+
