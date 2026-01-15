@@ -690,7 +690,7 @@ async def cmd_select_achievement(message: Message, command: CommandObject, bot: 
 
             response_lines = [f"🏆 <b>{user_link}, выберите достижение для профиля.</b> 🏆"]
             response_lines.append("---")
-            response_lines.append("Введите `Номер` достижения. Используйте <code>/selectachievement</code> [Номер]`")
+            response_lines.append("Используйте <code>/selectachievement</code> [Номер] достяжения`")
             response_lines.append("Или <code>/selectachievement none</code>, чтобы сбросить выбранное.")
             response_lines.append("\n<b>Ваши полученные достижения:</b>")
 
@@ -781,4 +781,5 @@ def setup_achievements_handlers(dp: Router):
     """Регистрирует обработчики команд для достижений."""
     dp.include_router(achievements_router)
     logger.info("Обработчики команд достижений зарегистрированы.")
+
 
