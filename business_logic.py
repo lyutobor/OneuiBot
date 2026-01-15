@@ -363,7 +363,17 @@ async def business_shop_command(message: Message):
 
     await message.reply("\n".join(response_lines), parse_mode="HTML", disable_web_page_preview=True)
 
-@business_router.message(Command("mybusinesses", "моибизнесы", "мойбизнес", "бизнесстатус", ignore_case=True))
+@business_router.message(Command(
+    "mybusinesses", "моибизнесы", 
+    "мойбизнес", "бизнесстатус", 
+    "бизнесы", "биз", "biz", "mybiz", 
+    "businesses", "bstatus", 
+    "моиактивы", "активы", "assets",
+    "империя", "empire",
+    "предприятия", "моипредприятия",
+    "statbiz", "статбиз",
+    ignore_case=True
+))
 async def my_businesses_command(message: Message, bot: Bot):
     if not message.from_user:
         await message.reply("Не могу определить пользователя.")
@@ -1696,4 +1706,5 @@ async def process_daily_business_income_and_events(bot: Bot):
 def setup_business_handlers(dp):
     dp.include_router(business_router)
     print("Обработчики команд для Бизнесов и Банка зарегистрированы.")
+
 
