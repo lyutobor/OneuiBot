@@ -362,72 +362,6 @@ async def get_global_family_reminders_for_user(user_id: int, bot: Bot) -> List[s
     return global_family_reminders
 
 
-# --- НОВАЯ ЛОГИКА УВЕДОМЛЕНИЙ О РАЗРЯДКЕ ---
-
-# Словарь для быстрого поиска названий (добавь это перед функцией, если нет)
-PHONE_MODELS_DICT_FOR_NOTIFY = {p["key"]: p for p in PHONE_MODELS}
-
-async def check_dead_phones_and_notify(bot: Bot):
-    """
-    Периодическая задача: проверяет телефоны, у которых села батарея,
-    и отправляет уведомление владельцу в ЛС.
-    """
-    conn = None
-    try:
-        conn = await database.get_connection()
-        
-        # Ищем телефоны: активные, не сломанные, не проданные, время вышло, уведомления НЕ было
-        query = """
-            SELECT phone_inventory_id, user_id, phone_model_key, battery_dead_after_utc, color
-            FROM user_phones 
-            WHERE is_active = TRUE 
-              AND is_broken = FALSE 
-              AND is_sold = FALSE
-              AND battery_dead_after_utc < NOW() AT TIME ZONE 'UTC'
-              AND (is_notified_battery_dead IS FALSE OR is_notified_battery_dead IS NULL)
-        """
-        
-        dead_phones = await conn.fetch(query)
-        
-        if not dead_phones:
-            return
-
-        for phone in dead_phones:
-            phone_id = phone['phone_inventory_id']
-            user_id = phone['user_id']
-            model_key = phone['phone_model_key']
-            color = phone['color']
-            
-            model_info = PHONE_MODELS_DICT_FOR_NOTIFY.get(model_key)
-            model_name = model_info['name'] if model_info else model_key
-            
-            try:
-                await bot.send_message(
-                    user_id,
-                    f"🪫 <b>Внимание! Ваш телефон разрядился!</b>\n\n"
-                    f"Модель: <b>{html.escape(model_name)}</b> ({html.escape(color)})\n"
-                    f"ID: <code>{phone_id}</code>\n\n"
-                    f"⚠️ Срочно зарядите его командой: <code>/chargephone {phone_id}</code>\n"
-                    f"Иначе через <b>{Config.PHONE_CHARGE_WINDOW_DAYS} дня</b> аккумулятор сломается окончательно.",
-                    parse_mode="HTML"
-                )
-                
-                # Ставим галочку, что уведомление отправлено
-                await conn.execute(
-                    "UPDATE user_phones SET is_notified_battery_dead = TRUE WHERE phone_inventory_id = $1",
-                    phone_id
-                )
-                logging.getLogger(__name__).info(f"Notification sent to user {user_id} for phone {phone_id}")
-                
-            except Exception as e:
-                logging.getLogger(__name__).warning(f"Failed to notify user {user_id}: {e}")
-
-    except Exception as e:
-        logging.getLogger(__name__).error(f"Error in check_dead_phones_and_notify: {e}", exc_info=True)
-    finally:
-        if conn:
-            await conn.close()
-
 @reminders_router.message(Command(*COMMAND_ALIASES, ignore_case=True))
 async def cmd_show_reminders(message: Message, bot: Bot):
     if not message.from_user:
@@ -573,4 +507,3 @@ async def cmd_show_reminders(message: Message, bot: Bot):
 def setup_reminders_handlers(dp: Router):
     dp.include_router(reminders_router)
     logger.info("Обработчики команды /напоминания зарегистрированы.")
-

@@ -2768,7 +2768,6 @@ async def cmd_charge_phone(message: Message, command: CommandObject, bot: Bot):
             fields_to_update: Dict[str, Any] = {}
             new_last_charged_utc = now_utc # Используем already defined and timezone-aware now_utc
             fields_to_update['last_charged_utc'] = new_last_charged_utc
-            fields_to_update['is_notified_battery_dead'] = False
 
             equipped_case_key = phone_db_data.get('equipped_case_key')
             case_battery_bonus_days = 0
@@ -3778,4 +3777,3 @@ def setup_phone_handlers(dp: Router):
     """Регистрирует обработчики команд, связанных с телефонами."""
     dp.include_router(phone_router)
     logger.info("Обработчики команд для телефонов зарегистрированы.")
-

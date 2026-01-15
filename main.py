@@ -24,7 +24,7 @@ from pytz import timezone as pytz_timezone # Убедитесь, что pytz у�
 import logging
 from phrases import ONEUI_BLOCKED_PHRASES
 from daily_onecoin_logic import setup_daily_onecoin_handlers
-from reminders_logic import setup_reminders_handlers, check_dead_phones_and_notify 
+from reminders_logic import setup_reminders_handlers
 
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
@@ -780,17 +780,6 @@ async def on_startup(dispatcher: Dispatcher):
     logger.info("Starting bot startup sequence...")
     await init_db()
     logger.info("Database initialized.")
-
-    # Проверка разряженных телефонов (каждые 10 минут)
-            scheduler.add_job(
-                check_dead_phones_and_notify,
-                'interval',
-                seconds=600,
-                args=[bot],
-                id='check_dead_phones_job',
-                replace_existing=True
-            )
-            logger.info("Задача проверки разряженных телефонов добавлена.")
 
     # Инициализация для бонуса (это у тебя уже есть, оставляем)
     bonus_reset_key = 'last_global_bonus_multiplier_reset'
@@ -1793,4 +1782,3 @@ if __name__ == '__main__':
             logger.info("Бот и ресурсы корректно остановлены (из main_runner).")
 
     asyncio.run(main_runner())
-
