@@ -262,12 +262,12 @@ class Config:
     BLACKMARKET_TOTAL_SLOTS = BLACKMARKET_NUM_REGULAR_ITEMS + BLACKMARKET_NUM_STOLEN_ITEMS # Всего 6 слотов
 
     # Скидки для обычных контрабандных товаров на ЧР (от цены после инфляции)
-    BLACKMARKET_REGULAR_ITEM_DISCOUNT_MIN = 0.10  # Мин. скидка 10%
-    BLACKMARKET_REGULAR_ITEM_DISCOUNT_MAX = 0.30  # Макс. скидка 25%
+    BLACKMARKET_REGULAR_ITEM_DISCOUNT_MIN = 0.20  # Мин. скидка 10%
+    BLACKMARKET_REGULAR_ITEM_DISCOUNT_MAX = 0.38  # Макс. скидка 25%
 
     # Дополнительная скидка для "краденых" телефонов (от цены *уже со скидкой ЧР*)
-    BLACKMARKET_STOLEN_ITEM_ADDITIONAL_DISCOUNT_MIN = 0.15 # Мин. доп. скидка 15%
-    BLACKMARKET_STOLEN_ITEM_ADDITIONAL_DISCOUNT_MAX = 0.30 # Макс. доп. скидка 30%
+    BLACKMARKET_STOLEN_ITEM_ADDITIONAL_DISCOUNT_MIN = 0.25 # Мин. доп. скидка 15%
+    BLACKMARKET_STOLEN_ITEM_ADDITIONAL_DISCOUNT_MAX = 0.40 # Макс. доп. скидка 30%
     
     # Возможные "износы" для краденых телефонов
     # Ключ эффекта будет сохранен в black_market_offers.wear_data и user_phones.data
@@ -997,3 +997,4 @@ class Config:
             "type": "bm_buy_phone_wrong_color", "target_value": True, "icon": "🌈🤫"
         },
     }    
+
