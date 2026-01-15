@@ -781,17 +781,6 @@ async def on_startup(dispatcher: Dispatcher):
     await init_db()
     logger.info("Database initialized.")
 
-    # Проверка разряженных телефонов (каждые 10 минут)
-            scheduler.add_job(
-                check_dead_phones_and_notify,
-                'interval',
-                seconds=600,
-                args=[bot],
-                id='check_dead_phones_job',
-                replace_existing=True
-            )
-            logger.info("Задача проверки разряженных телефонов добавлена.")
-
     # Инициализация для бонуса (это у тебя уже есть, оставляем)
     bonus_reset_key = 'last_global_bonus_multiplier_reset'
     if not await database.get_setting_timestamp(bonus_reset_key):
@@ -1793,4 +1782,5 @@ if __name__ == '__main__':
             logger.info("Бот и ресурсы корректно остановлены (из main_runner).")
 
     asyncio.run(main_runner())
+
 
